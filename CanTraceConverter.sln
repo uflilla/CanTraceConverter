@@ -1,0 +1,25 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.14.36908.2 d17.14
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "CanTraceConverter", "CanTraceConverter\CanTraceConverter.csproj", "{99313A18-FF49-4870-B3CF-C04349A8772F}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{99313A18-FF49-4870-B3CF-C04349A8772F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{99313A18-FF49-4870-B3CF-C04349A8772F}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{99313A18-FF49-4870-B3CF-C04349A8772F}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{99313A18-FF49-4870-B3CF-C04349A8772F}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {694262CD-D824-4AD4-88CD-ED95E4205A98}
+	EndGlobalSection
+EndGlobal

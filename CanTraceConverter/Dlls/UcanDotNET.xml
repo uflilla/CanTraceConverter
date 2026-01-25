@@ -1,0 +1,1520 @@
+﻿<?xml version="1.0"?>
+<doc>
+<assembly>
+<name>
+UcanDotNET
+</name>
+</assembly>
+<members>
+<member name="T:UcanDotNET.USBcanServer">
+ <summary>
+ USBcanServer is a wrapper class for using the USBCAN32.DLL with .NET programming languages
+ such as Visual Basic .NET, Managed C++ and C#.
+ </summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.USBCAN_MAX_MODULES">
+ <summary>Maximum number of modules that are supported.</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.USBCAN_MAX_INSTANCES">
+ <summary>Maximum number of applications that can use the USB-CAN-library.</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.USBCAN_ANY_MODULE">
+ <summary>
+ With the method <see cref="M:UcanDotNET.USBcanServer.InitCan(System.Byte,System.Int16,System.Int32,System.Int32,System.Int32,System.Byte,System.Byte)"/> the module is used, which is detected at first.
+ This value only should be used in case only one module is connected to the computer.
+ </summary>
+</member>
+<member name="T:UcanDotNET.USBcanServer.eUcanBaudrate">
+ <summary>Specifies pre-defined baud rate values for GW-001, GW-002 and all sysWORXX USB-CANmoduls.</summary>
+ <remarks></remarks>
+ <seealso cref="M:UcanDotNET.USBcanServer.InitCan(System.Byte,System.Int16,System.Int32,System.Int32,System.Int32,System.Byte,System.Byte)"/>
+ <seealso cref="M:UcanDotNET.USBcanServer.SetBaudrate(System.Byte,System.Int16,System.Int32)"/>
+ <seealso cref="M:UcanDotNET.USBcanServer.GetBaudrateMessage(System.Byte,System.Byte)"/>
+ <seealso cref="T:UcanDotNET.USBcanServer.eUcanBaudrateEx"/>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanBaudrate.USBCAN_BAUD_1MBit">
+ --- bit rate values for 1st and 2nd generation (G1/G2) of USB-CANmodul ---
+ <summary>1000 kBit/sec</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanBaudrate.USBCAN_BAUD_800kBit">
+ <summary>800 kBit/sec</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanBaudrate.USBCAN_BAUD_500kBit">
+ <summary>500 kBit/sec</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanBaudrate.USBCAN_BAUD_250kBit">
+ <summary>250 kBit/sec</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanBaudrate.USBCAN_BAUD_125kBit">
+ <summary>125 kBit/sec</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanBaudrate.USBCAN_BAUD_100kBit">
+ <summary>100 kBit/sec</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanBaudrate.USBCAN_BAUD_50kBit">
+ <summary>50 kBit/sec</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanBaudrate.USBCAN_BAUD_20kBit">
+ <summary>20 kBit/sec</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanBaudrate.USBCAN_BAUD_10kBit">
+ <summary>10 kBit/sec</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanBaudrate.USBCAN_BAUD_USE_BTREX">
+ <summary>Uses pre-defined extended values of baudrate for all sysWORXX USB-CANmoduls.</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanBaudrate.USBCAN_BAUD_AUTO">
+ <summary>Automatic baud rate detection (not implemented in this version).</summary>
+</member>
+<member name="T:UcanDotNET.USBcanServer.eUcanBaudrateEx">
+ <summary>Specifies pre-defined baud rate values for all sysWORXX USB-CANmoduls.</summary>
+ <remarks>These values cannot be used for GW-001 and GW-002! Use values from enum  <see cref="T:UcanDotNET.USBcanServer.eUcanBaudrate"/> instead.</remarks>
+ <seealso cref="M:UcanDotNET.USBcanServer.InitCan(System.Byte,System.Int16,System.Int32,System.Int32,System.Int32,System.Byte,System.Byte)"/>
+ <seealso cref="M:UcanDotNET.USBcanServer.SetBaudrate(System.Byte,System.Int16,System.Int32)"/>
+ <seealso cref="M:UcanDotNET.USBcanServer.GetBaudrateExMessage(System.Int16)"/>
+ <seealso cref="T:UcanDotNET.USBcanServer.eUcanBaudrate"/>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanBaudrateEx.USBCAN_BAUDEX_1MBit">
+ --- bit rate values for 3rd generation (G3) of USB-CANmodul ---
+ <summary>G3: 1000 kBit/sec</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanBaudrateEx.USBCAN_BAUDEX_800kBit">
+ <summary>G3: 800 kBit/sec</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanBaudrateEx.USBCAN_BAUDEX_500kBit">
+ <summary>G3: 500 kBit/sec</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanBaudrateEx.USBCAN_BAUDEX_250kBit">
+ <summary>G3: 250 kBit/sec</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanBaudrateEx.USBCAN_BAUDEX_125kBit">
+ <summary>G3: 125 kBit/sec</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanBaudrateEx.USBCAN_BAUDEX_100kBit">
+ <summary>G3: 100 kBit/sec</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanBaudrateEx.USBCAN_BAUDEX_50kBit">
+ <summary>G3: 50 kBit/sec</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanBaudrateEx.USBCAN_BAUDEX_20kBit">
+ <summary>G3: 20 kBit/sec</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanBaudrateEx.USBCAN_BAUDEX_10kBit">
+ <summary>G3: 10 kBit/sec (half CPU clock)</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanBaudrateEx.USBCAN_BAUDEX_SP2_1MBit">
+ <summary>G3: 1000 kBit/sec Sample Point: 87,50%</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanBaudrateEx.USBCAN_BAUDEX_SP2_800kBit">
+ <summary>G3: 800 kBit/sec Sample Point: 86,67%</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanBaudrateEx.USBCAN_BAUDEX_SP2_500kBit">
+ <summary>G3: 500 kBit/sec Sample Point: 87,50%</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanBaudrateEx.USBCAN_BAUDEX_SP2_250kBit">
+ <summary>G3: 250 kBit/sec Sample Point: 87,50%</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanBaudrateEx.USBCAN_BAUDEX_SP2_125kBit">
+ <summary>G3: 125 kBit/sec Sample Point: 87,50%</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanBaudrateEx.USBCAN_BAUDEX_SP2_100kBit">
+ <summary>G3: 100 kBit/sec Sample Point: 87,50%</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanBaudrateEx.USBCAN_BAUDEX_SP2_50kBit">
+ <summary>G3: 50 kBit/sec Sample Point: 87,50%</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanBaudrateEx.USBCAN_BAUDEX_SP2_20kBit">
+ <summary>G3: 20 kBit/sec Sample Point: 85,00%</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanBaudrateEx.USBCAN_BAUDEX_SP2_10kBit">
+ <summary>G3: 10 kBit/sec Sample Point: 85,00% (half CPU clock)</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanBaudrateEx.USBCAN_BAUDEX_G4_1MBit">
+ --- bit rate values for 4th generation (G4) of USB-CANmodul ---
+ <summary>G4: 1000 kBit/sec Sample Point: 83,33%</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanBaudrateEx.USBCAN_BAUDEX_G4_800kBit">
+ <summary>G4: 800 kBit/sec Sample Point: 80,00%</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanBaudrateEx.USBCAN_BAUDEX_G4_500kBit">
+ <summary>G4: 500 kBit/sec Sample Point: 83,33%</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanBaudrateEx.USBCAN_BAUDEX_G4_250kBit">
+ <summary>G4: 250 kBit/sec Sample Point: 83,33%</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanBaudrateEx.USBCAN_BAUDEX_G4_125kBit">
+ <summary>G4: 125 kBit/sec Sample Point: 83,33%</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanBaudrateEx.USBCAN_BAUDEX_G4_100kBit">
+ <summary>G4: 100 kBit/sec Sample Point: 83,33%</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanBaudrateEx.USBCAN_BAUDEX_G4_50kBit">
+ <summary>G4: 50 kBit/sec Sample Point: 83,33%</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanBaudrateEx.USBCAN_BAUDEX_G4_20kBit">
+ <summary>G4: 20 kBit/sec Sample Point: 84,00%</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanBaudrateEx.USBCAN_BAUDEX_G4_10kBit">
+ <summary>G4: 10 kBit/sec Sample Point: 84,00% (half CPU clock)</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanBaudrateEx.USBCAN_BAUDEX_USE_BTR01">
+ <summary>Uses pre-defined values of baud rates of eUcanBaudrate.</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanBaudrateEx.USBCAN_BAUDEX_AUTO">
+ <summary>Automatic baud rate detection (not implemented in this version).</summary>
+</member>
+<member name="T:UcanDotNET.USBcanServer.eUcanMsgFrameFormat">
+ <summary>
+ Specifies values for the frame format of CAN messages for member <see cref="F:UcanDotNET.USBcanServer.tCanMsgStruct.m_bFF"/>
+ in structure <see cref="T:UcanDotNET.USBcanServer.tCanMsgStruct"/>. These values can be combined.
+ </summary>
+ <seealso cref="T:UcanDotNET.USBcanServer.tCanMsgStruct"/>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanMsgFrameFormat.USBCAN_MSG_FF_STD">
+ <summary>standard CAN data frame with 11 bit ID (CAN2.0A spec.)</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanMsgFrameFormat.USBCAN_MSG_FF_ECHO">
+ <summary>transmit echo</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanMsgFrameFormat.USBCAN_MSG_FF_RTR">
+ <summary>CAN remote request frame with</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanMsgFrameFormat.USBCAN_MSG_FF_EXT">
+ <summary>extended CAN data frame with 29 bit ID (CAN2.0B spec.)</summary>
+</member>
+<member name="T:UcanDotNET.USBcanServer.eUcanReturn">
+ <summary>Specifies all return codes of all methodes of this class.</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanReturn.USBCAN_SUCCESSFUL">
+ <summary>no error</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanReturn.USBCAN_ERR">
+ <summary>start of error codes comming from USB-CAN-library</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanReturn.USBCAN_ERRCMD">
+ <summary>start of error codes comming from command interface between host and USB-CANmodul</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanReturn.USBCAN_WARNING">
+ <summary>start of warning codes</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanReturn.USBCAN_RESERVED">
+ <summary>start of recerved codes which are only used internaly</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanReturn.USBCAN_ERR_RESOURCE">
+ <summary>could not created a resource (memory, handle, ...)</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanReturn.USBCAN_ERR_MAXMODULES">
+ <summary>the maximum number of opened modules is reached</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanReturn.USBCAN_ERR_HWINUSE">
+ <summary>the specified module is already in use</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanReturn.USBCAN_ERR_ILLVERSION">
+ <summary>the software versions of the module and library are incompatible</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanReturn.USBCAN_ERR_ILLHW">
+ <summary>the module with the specified device number is not connected (or used by an other application)</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanReturn.USBCAN_ERR_ILLHANDLE">
+ <summary>wrong USB-CAN-Handle handed over to the function</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanReturn.USBCAN_ERR_ILLPARAM">
+ <summary>wrong parameter handed over to the function</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanReturn.USBCAN_ERR_BUSY">
+ <summary>instruction can not be processed at this time</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanReturn.USBCAN_ERR_TIMEOUT">
+ <summary>no answer from module</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanReturn.USBCAN_ERR_IOFAILED">
+ <summary>a request to the driver failed</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanReturn.USBCAN_ERR_DLL_TXFULL">
+ <summary>a CAN message did not fit into the transmit buffer</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanReturn.USBCAN_ERR_MAXINSTANCES">
+ <summary>maximum number of applications is reached</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanReturn.USBCAN_ERR_CANNOTINIT">
+ <summary>CAN interface is not yet initialized</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanReturn.USBCAN_ERR_DISCONECT">
+ <summary>USB-CANmodul was disconnected</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanReturn.USBCAN_ERR_NOHWCLASS">
+ <summary>the needed device class does not exist</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanReturn.USBCAN_ERR_ILLCHANNEL">
+ <summary>illegal CAN channel</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanReturn.USBCAN_ERR_RESERVED1">
+ <summary>reserved</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanReturn.USBCAN_ERR_ILLHWTYPE">
+ <summary>the API function can not be used with this hardware</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanReturn.USBCAN_ERRCMD_NOTEQU">
+ <summary>the received response does not match to the transmitted command</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanReturn.USBCAN_ERRCMD_REGTST">
+ <summary>no access to the CAN controller</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanReturn.USBCAN_ERRCMD_ILLCMD">
+ <summary>the module could not interpret the command</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanReturn.USBCAN_ERRCMD_EEPROM">
+ <summary>error while reading the EEPROM</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanReturn.USBCAN_ERRCMD_RESERVED1">
+ <summary>reserved</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanReturn.USBCAN_ERRCMD_RESERVED2">
+ <summary>reserved</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanReturn.USBCAN_ERRCMD_RESERVED3">
+ <summary>reserved</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanReturn.USBCAN_ERRCMD_ILLBDR">
+ <summary>illegal baud rate value specified in BTR0/BTR1 for sysWORXX USB-CANmoduls</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanReturn.USBCAN_ERRCMD_NOTINIT">
+ <summary>CAN channel is not initialized</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanReturn.USBCAN_ERRCMD_ALREADYINIT">
+ <summary>CAN channel is already initialized</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanReturn.USBCAN_ERRCMD_ILLSUBCMD">
+ <summary>illegal sub-command specified</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanReturn.USBCAN_ERRCMD_ILLIDX">
+ <summary>illegal index specified (e.g. index for cyclic CAN messages)</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanReturn.USBCAN_ERRCMD_RUNNING">
+ <summary>cyclic CAN message(s) can not be defined because transmission of cyclic CAN messages is already running</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanReturn.USBCAN_WARN_NODATA">
+ <summary>no CAN messages received</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanReturn.USBCAN_WARN_SYS_RXOVERRUN">
+ <summary>overrun in receive buffer of the kernel driver</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanReturn.USBCAN_WARN_DLL_RXOVERRUN">
+ <summary>overrun in receive buffer of the USB-CAN-library</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanReturn.USBCAN_WARN_RESERVED1">
+ <summary>reserved</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanReturn.USBCAN_WARN_RESERVED2">
+ <summary>reserved</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanReturn.USBCAN_WARN_FW_TXOVERRUN">
+ <summary>overrun in transmit buffer of the firmware (but this CAN message was successfully stored in buffer of the library)</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanReturn.USBCAN_WARN_FW_RXOVERRUN">
+ <summary>overrun in receive buffer of the firmware (but this CAN message was successfully read)</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanReturn.USBCAN_WARN_FW_TXMSGLOST">
+ <summary>reserved</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanReturn.USBCAN_WARN_NULL_PTR">
+ <summary>pointer is NULL</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanReturn.USBCAN_WARN_TXLIMIT">
+ <summary>not all CAN messages could be stored to the transmit buffer in USB-CAN-library (check output of parameter pdwCount_p)</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanReturn.USBCAN_WARN_BUSY">
+ <summary>reserved</summary>
+</member>
+<member name="T:UcanDotNET.USBcanServer.eUcanCbEvent">
+ <summary>This enum defines events for the callback functions of the library.</summary>
+ <seealso cref="M:UcanDotNET.USBcanServer.GetStatus(System.Byte,UcanDotNET.USBcanServer.tStatusStruct@)"/>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanCbEvent.USBCAN_EVENT_INITHW">
+ <summary>The USB-CANmodul has been initialized.</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanCbEvent.USBCAN_EVENT_INITCAN">
+ <summary>The CAN interface has been initialized.</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanCbEvent.USBCAN_EVENT_RECEIVE">
+ <summary>A new CAN message has been received.</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanCbEvent.USBCAN_EVENT_STATUS">
+ <summary>The error state in the module has changed.</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanCbEvent.USBCAN_EVENT_DEINITCAN">
+ <summary>The CAN interface has been deinitialized.</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanCbEvent.USBCAN_EVENT_DEINITHW">
+ <summary>The USB-CANmodul has been deinitialized.</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanCbEvent.USBCAN_EVENT_CONNECT">
+ <summary>A new USB-CANmodul has been connected.</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanCbEvent.USBCAN_EVENT_DISCONNECT">
+ <summary>Any USB-CANmodul has been disconnected.</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanCbEvent.USBCAN_EVENT_FATALDISCON">
+ <summary>A USB-CANmodul has been disconnected during operation.</summary>
+</member>
+<member name="T:UcanDotNET.USBcanServer.eUcanCanStatus">
+ <summary>CAN error status bits. These bit values occurs in combination with the method <see cref="M:UcanDotNET.USBcanServer.GetStatus(System.Byte,UcanDotNET.USBcanServer.tStatusStruct@)"/>.</summary>
+ <seealso cref="M:UcanDotNET.USBcanServer.GetStatus(System.Byte,UcanDotNET.USBcanServer.tStatusStruct@)"/>
+ <seealso cref="M:UcanDotNET.USBcanServer.GetCanStatusMessage(System.Int16)"/>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanCanStatus.USBCAN_CANERR_OK">
+ <summary>no error</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanCanStatus.USBCAN_CANERR_XMTFULL">
+ <summary>Transmit buffer of the CAN controller is full.</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanCanStatus.USBCAN_CANERR_OVERRUN">
+ <summary>Receive buffer of the CAN controller is full.</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanCanStatus.USBCAN_CANERR_BUSLIGHT">
+ <summary>Bus error: Error Limit 1 exceeded (Warning Limit reached)</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanCanStatus.USBCAN_CANERR_BUSHEAVY">
+ <summary>Bus error: Error Limit 2 exceeded (Error Passive)</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanCanStatus.USBCAN_CANERR_BUSOFF">
+ <summary>Bus error: CAN controller has gone into Bus-Off state</summary>
+ <remarks>Methode <see cref="M:UcanDotNET.USBcanServer.ResetCan(System.Byte,System.Int32)"/> has to  be called./></remarks>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanCanStatus.USBCAN_CANERR_QRCVEMPTY">
+ <summary>No CAN message is within the receive buffer.</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanCanStatus.USBCAN_CANERR_QOVERRUN">
+ <summary>Receive buffer is full. CAN messages has been lost.</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanCanStatus.USBCAN_CANERR_QXMTFULL">
+ <summary>Transmit buffer is full.</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanCanStatus.USBCAN_CANERR_REGTEST">
+ <summary>Register test of the CAN controller failed.</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanCanStatus.USBCAN_CANERR_MEMTEST">
+ <summary>Memory test on hardware failed.</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanCanStatus.USBCAN_CANERR_TXMSGLOST">
+ <summary>Transmit CAN message(s) was/were automatically deleted by firmware (transmit timeout).</summary>
+</member>
+<member name="T:UcanDotNET.USBcanServer.eUcanUsbStatus">
+ <summary>USB error status bits. These bit values occurs in combination with the method <see cref="M:UcanDotNET.USBcanServer.GetStatus(System.Byte,UcanDotNET.USBcanServer.tStatusStruct@)"/>.</summary>
+ <seealso cref="M:UcanDotNET.USBcanServer.GetStatus(System.Byte,UcanDotNET.USBcanServer.tStatusStruct@)"/>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanUsbStatus.USBCAN_USBERR_OK">
+ <summary>no error</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.USBCAN_AMR_ALL">
+ <summary>Specifies the acceptance mask for receiving all CAN messages.</summary>
+ <seealso cref="F:UcanDotNET.USBcanServer.USBCAN_ACR_ALL"/>
+ <seealso cref="M:UcanDotNET.USBcanServer.InitCan(System.Byte,System.Int16,System.Int32,System.Int32,System.Int32,System.Byte,System.Byte)"/>
+ <seealso cref="M:UcanDotNET.USBcanServer.SetAcceptance(System.Byte,System.Int32,System.Int32)"/>
+</member>
+<member name="F:UcanDotNET.USBcanServer.USBCAN_ACR_ALL">
+ <summary>Specifies the acceptance code for receiving all CAN messages.</summary>
+ <seealso cref="F:UcanDotNET.USBcanServer.USBCAN_AMR_ALL"/>
+ <seealso cref="M:UcanDotNET.USBcanServer.InitCan(System.Byte,System.Int16,System.Int32,System.Int32,System.Int32,System.Byte,System.Byte)"/>
+ <seealso cref="M:UcanDotNET.USBcanServer.SetAcceptance(System.Byte,System.Int32,System.Int32)"/>
+</member>
+<member name="T:UcanDotNET.USBcanServer.eUcanOutputControl">
+ <summary>
+ Specifies pre-defined values for the Output Control Register of SJA1000 on GW-001 and GW-002.
+ These values are only important for GW-001 and GW-002.
+ They does not have an effect on sysWORXX USB-CANmoduls.
+ </summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanOutputControl.USBCAN_OCR_DEFAULT">
+ <summary>default OCR value for the standard USB-CANmodul GW-001/GW-002</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanOutputControl.USBCAN_OCR_RS485_ISOLATED">
+ <summary>OCR value for RS485 interface and galvanic isolation</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanOutputControl.USBCAN_OCR_RS485_NOT_ISOLATED">
+ <summary>OCR value for RS485 interface but without galvanic isolation</summary>
+</member>
+<member name="T:UcanDotNET.USBcanServer.eUcanChannel">
+ <summary>Specifies values for the CAN channel to be used on multi-channel USB-CANmoduls.</summary>
+ <remarks></remarks>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanChannel.USBCAN_CHANNEL_CH0">
+ <summary>Specifies the first CAN channel (GW-001/GW-002 and USB-CANmodul1 only can be used with this channel).</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanChannel.USBCAN_CHANNEL_CH1">
+ <summary>Specifies the second CAN channel (this channel cannot be used with GW-001/GW-002 and USB-CANmodul1).</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanChannel.USBCAN_CHANNEL_ALL">
+ <summary>Specifies all CAN channels (can only be used with the method <see cref="M:UcanDotNET.USBcanServer.Shutdown(System.Byte,System.Boolean)"/>).</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanChannel.USBCAN_CHANNEL_ANY">
+ <summary>Specifies the use of any channel (can only be used with the method <see cref="M:UcanDotNET.USBcanServer.ReadCanMsg(System.Byte@,UcanDotNET.USBcanServer.tCanMsgStruct[]@,System.Int32@)"/>).</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanChannel.USBCAN_CHANNEL_CAN1">
+ <summary>Specifies the first CAN channel (equivalent to USBCAN_CHANNEL_CH0).</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanChannel.USBCAN_CHANNEL_CAN2">
+ <summary>Specifies the second CAN channel (equivalent to USBCAN_CHANNEL_CH1).</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanChannel.USBCAN_CHANNEL_LIN">
+ <summary>Specifies the LIN channel (currently not supported by the software).</summary>
+</member>
+<member name="T:UcanDotNET.USBcanServer.eUcanResetFlags">
+ <summary>
+ Specifies flags for resetting USB-CANmodul with method <see cref="M:UcanDotNET.USBcanServer.ResetCan(System.Byte,System.Int32)"/>.
+ These flags can be used in combination.
+ </summary>
+ <seealso cref="M:UcanDotNET.USBcanServer.ResetCan(System.Byte,System.Int32)"/>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanResetFlags.USBCAN_RESET_ALL">
+ <summary>reset everything</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanResetFlags.USBCAN_RESET_NO_STATUS">
+ <summary>no CAN status reset (only supported for sysWORXX USB-CANmoduls)</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanResetFlags.USBCAN_RESET_NO_CANCTRL">
+ <summary>no CAN controller reset</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanResetFlags.USBCAN_RESET_NO_TXCOUNTER">
+ <summary>no transmit message counter reset</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanResetFlags.USBCAN_RESET_NO_RXCOUNTER">
+ <summary>no receive message counter reset</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanResetFlags.USBCAN_RESET_NO_TXBUFFER_CH">
+ <summary>no transmit message buffer reset at channel level</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanResetFlags.USBCAN_RESET_NO_TXBUFFER_DLL">
+ <summary>no transmit message buffer reset at USB-CAN-library level</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanResetFlags.USBCAN_RESET_NO_TXBUFFER_FW">
+ <summary>no transmit message buffer reset at firmware level</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanResetFlags.USBCAN_RESET_NO_RXBUFFER_CH">
+ <summary>no receive message buffer reset at channel level</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanResetFlags.USBCAN_RESET_NO_RXBUFFER_DLL">
+ <summary>no receive message buffer reset at USB-CAN-library level</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanResetFlags.USBCAN_RESET_NO_RXBUFFER_SYS">
+ <summary>no receive message buffer reset at kernel driver level</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanResetFlags.USBCAN_RESET_NO_RXBUFFER_FW">
+ <summary>no receive message buffer reset at firmware level</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanResetFlags.USBCAN_RESET_FIRMWARE">
+ <summary>complete firmware reset (module will automatically reconnect at USB port in 500msec)</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanResetFlags.USBCAN_RESET_NO_COUNTER_ALL">
+ <summary>no reset of all message counters</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanResetFlags.USBCAN_RESET_NO_TXBUFFER_COMM">
+ <summary>no reset of transmit message buffers at communication level (firmware, kernel and library)</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanResetFlags.USBCAN_RESET_NO_RXBUFFER_COMM">
+ <summary>no reset of receive message buffers at communication level (firmware, kernel and library)</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanResetFlags.USBCAN_RESET_NO_TXBUFFER_ALL">
+ <summary>no reset of all transmit message buffers</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanResetFlags.USBCAN_RESET_NO_RXBUFFER_ALL">
+ <summary>no reset of all receive message buffers</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanResetFlags.USBCAN_RESET_NO_BUFFER_COMM">
+ <summary>no reset of all message buffers at communication level (firmware, kernel and library)</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanResetFlags.USBCAN_RESET_NO_BUFFER_ALL">
+ <summary>no reset of all message buffers</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanResetFlags.USBCAN_RESET_ONLY_STATUS">
+ <summary>reset of the CAN status only</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanResetFlags.USBCAN_RESET_ONLY_CANCTRL">
+ <summary>reset of the CAN controller only</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanResetFlags.USBCAN_RESET_ONLY_TXBUFFER_FW">
+ <summary>reset of the transmit buffer in firmware only</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanResetFlags.USBCAN_RESET_ONLY_RXBUFFER_FW">
+ <summary>reset of the receive buffer in firmware only</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanResetFlags.USBCAN_RESET_ONLY_RXCHANNEL_BUFF">
+ <summary>reset of the specified channel of the receive buffer only</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanResetFlags.USBCAN_RESET_ONLY_TXCHANNEL_BUFF">
+ <summary>reset of the specified channel of the transmit buffer only</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanResetFlags.USBCAN_RESET_ONLY_RX_BUFF">
+ <summary>reset of the receive buffer and receive message counter only</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanResetFlags.USBCAN_RESET_ONLY_RX_BUFF_GW002">
+ <summary>reset of the receive buffer and receive message counter (for GW-002) only</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanResetFlags.USBCAN_RESET_ONLY_TX_BUFF">
+ <summary>reset of the transmit buffer and transmit message counter only</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanResetFlags.USBCAN_RESET_ONLY_ALL_BUFF">
+ <summary>reset of all buffers and all message counters only</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanResetFlags.USBCAN_RESET_ONLY_ALL_COUNTER">
+ <summary>reset of all message counters only</summary>
+</member>
+<member name="T:UcanDotNET.USBcanServer.eUcanProductCode">
+ <summary>
+ These values defines product codes for all known USB-CANmodul derivates received in member
+ <see cref="F:UcanDotNET.USBcanServer.tUcanHardwareInfoEx.m_dwProductCode"/> of structure <see cref="T:UcanDotNET.USBcanServer.tUcanHardwareInfoEx"/>
+ with method <see cref="M:UcanDotNET.USBcanServer.GetHardwareInfo(UcanDotNET.USBcanServer.tUcanHardwareInfoEx@,UcanDotNET.USBcanServer.tUcanChannelInfo@,UcanDotNET.USBcanServer.tUcanChannelInfo@)"/>.
+ </summary>
+ <seealso cref="M:UcanDotNET.USBcanServer.GetHardwareInfo(UcanDotNET.USBcanServer.tUcanHardwareInfoEx@,UcanDotNET.USBcanServer.tUcanChannelInfo@,UcanDotNET.USBcanServer.tUcanChannelInfo@)"/>
+ <seealso cref="T:UcanDotNET.USBcanServer.tUcanHardwareInfoEx"/>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanProductCode.USBCAN_PRODCODE_PID_GW001">
+ <summary>Product code for GW-001 (outdated).</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanProductCode.USBCAN_PRODCODE_PID_GW002">
+ <summary>Product code for GW-002 (outdated).</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanProductCode.USBCAN_PRODCODE_PID_MULTIPORT">
+ <summary>Product code for Multiport CAN-to-USB G3.</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanProductCode.USBCAN_PRODCODE_PID_BASIC">
+ <summary>Product code for USB-CANmodul1 G3.</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanProductCode.USBCAN_PRODCODE_PID_ADVANCED">
+ <summary>Product code for USB-CANmodul2 G3.</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanProductCode.USBCAN_PRODCODE_PID_USBCAN8">
+ <summary>Product code for USB-CANmodul8 G3.</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanProductCode.USBCAN_PRODCODE_PID_USBCAN16">
+ <summary>Product code for USB-CANmodul16 G3.</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanProductCode.USBCAN_PRODCODE_PID_RESERVED3">
+ <summary>Reserved.</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanProductCode.USBCAN_PRODCODE_PID_ADVANCED_G4">
+ <summary>Product code for USB-CANmodul2 G4.</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanProductCode.USBCAN_PRODCODE_PID_BASIC_G4">
+ <summary>Product code for USB-CANmodul1 G4.</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanProductCode.USBCAN_PRODCODE_PID_RESERVED1">
+ <summary>Reserved.</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanProductCode.USBCAN_PRODCODE_PID_RESERVED2">
+ <summary>Reserved.</summary>
+</member>
+<member name="T:UcanDotNET.USBcanServer.eUcanCyclicFlags">
+ <summary>
+ Specifies flags for cyclical CAN messages.
+ These flags can be used in combinations with method <see cref="M:UcanDotNET.USBcanServer.EnableCyclicCanMsg(System.Byte,System.Int32)"/>.
+ </summary>
+ <seealso cref="M:UcanDotNET.USBcanServer.EnableCyclicCanMsg(System.Byte,System.Int32)"/>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanCyclicFlags.USBCAN_CYCLIC_FLAG_STOPP">
+ <summary>Stopps the transmission of cyclic CAN messages.</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanCyclicFlags.USBCAN_CYCLIC_FLAG_START">
+ <summary>Global enable of transmission of cyclic CAN messages.</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanCyclicFlags.USBCAN_CYCLIC_FLAG_SEQUMODE">
+ <summary>List of cyclcic CAN messages will be processed in sequential mode (otherwise in parallel mode).</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanCyclicFlags.USBCAN_CYCLIC_FLAG_NOECHO">
+ <summary>No echo will be sent back if echo mode is enabled with method <see cref="M:UcanDotNET.USBcanServer.InitCan(System.Byte,System.Int16,System.Int32,System.Int32,System.Int32,System.Byte,System.Byte)"/>.</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanCyclicFlags.USBCAN_CYCLIC_FLAG_LOCK_0">
+ <summary>CAN message with index 0 of the list will not be sent.</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanCyclicFlags.USBCAN_CYCLIC_FLAG_LOCK_1">
+ <summary>CAN message with index 1 of the list will not be sent.</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanCyclicFlags.USBCAN_CYCLIC_FLAG_LOCK_2">
+ <summary>CAN message with index 2 of the list will not be sent.</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanCyclicFlags.USBCAN_CYCLIC_FLAG_LOCK_3">
+ <summary>CAN message with index 3 of the list will not be sent.</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanCyclicFlags.USBCAN_CYCLIC_FLAG_LOCK_4">
+ <summary>CAN message with index 4 of the list will not be sent.</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanCyclicFlags.USBCAN_CYCLIC_FLAG_LOCK_5">
+ <summary>CAN message with index 5 of the list will not be sent.</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanCyclicFlags.USBCAN_CYCLIC_FLAG_LOCK_6">
+ <summary>CAN message with index 6 of the list will not be sent.</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanCyclicFlags.USBCAN_CYCLIC_FLAG_LOCK_7">
+ <summary>CAN message with index 7 of the list will not be sent.</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanCyclicFlags.USBCAN_CYCLIC_FLAG_LOCK_8">
+ <summary>CAN message with index 8 of the list will not be sent.</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanCyclicFlags.USBCAN_CYCLIC_FLAG_LOCK_9">
+ <summary>CAN message with index 9 of the list will not be sent.</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanCyclicFlags.USBCAN_CYCLIC_FLAG_LOCK_10">
+ <summary>CAN message with index 10 of the list will not be sent.</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanCyclicFlags.USBCAN_CYCLIC_FLAG_LOCK_11">
+ <summary>CAN message with index 11 of the list will not be sent.</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanCyclicFlags.USBCAN_CYCLIC_FLAG_LOCK_12">
+ <summary>CAN message with index 12 of the list will not be sent.</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanCyclicFlags.USBCAN_CYCLIC_FLAG_LOCK_13">
+ <summary>CAN message with index 13 of the list will not be sent.</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanCyclicFlags.USBCAN_CYCLIC_FLAG_LOCK_14">
+ <summary>CAN message with index 14 of the list will not be sent.</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanCyclicFlags.USBCAN_CYCLIC_FLAG_LOCK_15">
+ <summary>CAN message with index 15 of the list will not be sent.</summary>
+</member>
+<member name="T:UcanDotNET.USBcanServer.eUcanPendingFlags">
+ <summary>Specifies flags for method <see cref="M:UcanDotNET.USBcanServer.GetMsgPending(System.Byte,System.Int32,System.Int32@)"/>.
+ These flags can be uses in combinations.</summary>
+ <seealso cref="M:UcanDotNET.USBcanServer.GetMsgPending(System.Byte,System.Int32,System.Int32@)"/>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanPendingFlags.USBCAN_PENDING_FLAG_RX_DLL">
+ <summary>number of pending CAN messages in receive buffer of USB-CAN-library</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanPendingFlags.USBCAN_PENDING_FLAG_RX_SYS">
+ <summary>reserved</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanPendingFlags.USBCAN_PENDING_FLAG_RX_FW">
+ <summary>number of pending CAN messages in receive buffer of firmware</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanPendingFlags.USBCAN_PENDING_FLAG_TX_DLL">
+ <summary>number of pending CAN messages in transmit buffer of USB-CAN-library</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanPendingFlags.USBCAN_PENDING_FLAG_TX_SYS">
+ <summary>reserved</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanPendingFlags.USBCAN_PENDING_FLAG_TX_FW">
+ <summary>number of pending CAN messages in transmit buffer of firmware</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanPendingFlags.USBCAN_PENDING_FLAG_RX_ALL">
+ <summary>number of pending CAN messages in all receive buffers</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanPendingFlags.USBCAN_PENDING_FLAG_TX_ALL">
+ <summary>number of pending CAN messages in all transmit buffers</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.eUcanPendingFlags.USBCAN_PENDING_FLAG_ALL">
+ <summary>number of pending CAN messages in all buffers</summary>
+</member>
+<member name="T:UcanDotNET.USBcanServer.tCanMsgStruct">
+ <summary>Structure of a CAN message.</summary>
+ <remarks></remarks>
+ <seealso cref="M:UcanDotNET.USBcanServer.ReadCanMsg(System.Byte@,UcanDotNET.USBcanServer.tCanMsgStruct[]@,System.Int32@)"/>
+ <seealso cref="M:UcanDotNET.USBcanServer.WriteCanMsg(System.Byte,UcanDotNET.USBcanServer.tCanMsgStruct[]@,System.Int32@)"/>
+ <seealso cref="M:UcanDotNET.USBcanServer.DefineCyclicCanMsg(System.Byte,UcanDotNET.USBcanServer.tCanMsgStruct[]@)"/>
+ <seealso cref="M:UcanDotNET.USBcanServer.ReadCyclicCanMsg(System.Byte,UcanDotNET.USBcanServer.tCanMsgStruct[]@,System.Int32@)"/>
+</member>
+<member name="F:UcanDotNET.USBcanServer.tCanMsgStruct.m_dwID">
+ <summary>CAN Identifier</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.tCanMsgStruct.m_bFF">
+ <summary>CAN Frame Format (see enum <see cref="T:UcanDotNET.USBcanServer.eUcanMsgFrameFormat"/>)</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.tCanMsgStruct.m_bDLC">
+ <summary>CAN Data Length Code</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.tCanMsgStruct.m_bData">
+ <summary>CAN Data (array of 8 bytes)</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.tCanMsgStruct.m_dwTime">
+ <summary>Receive time stamp in msec (for transmit messages no meaning)</summary>
+</member>
+<member name="M:UcanDotNET.USBcanServer.tCanMsgStruct.CreateInstance(System.Int32,System.Byte)">
+ <summary>Creates a new instance of a CAN message including 8 data bytes.</summary>
+ <param name="dwID_p">CAN Identifier</param>
+ <param name="bFF_p">CAN Frame Format</param>
+ <returns>Returns the new instance of a tCanMsgSturct structure.</returns>
+</member>
+<member name="T:UcanDotNET.USBcanServer.tStatusStruct">
+ <summary>Structure including the error status of CAN and USB.
+ Use this structure with the method <see cref="M:UcanDotNET.USBcanServer.GetStatus(System.Byte,UcanDotNET.USBcanServer.tStatusStruct@)"/>.</summary>
+ <seealso cref="M:UcanDotNET.USBcanServer.GetStatus(System.Byte,UcanDotNET.USBcanServer.tStatusStruct@)"/>
+ <seealso cref="M:UcanDotNET.USBcanServer.GetCanStatusMessage(System.Int16)"/>
+</member>
+<member name="F:UcanDotNET.USBcanServer.tStatusStruct.m_wCanStatus">
+ <summary>CAN error status (see enum <see cref="T:UcanDotNET.USBcanServer.eUcanCanStatus"/>)</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.tStatusStruct.m_wUsbStatus">
+ <summary>USB error status (see enum <see cref="T:UcanDotNET.USBcanServer.eUcanUsbStatus"/>)</summary>
+</member>
+<member name="T:UcanDotNET.USBcanServer.tUcanInitCanParam">
+ <summary>Structure includint initialisation paramaters used with UcanInitCanEx() and UcanInitCanEx2()</summary>
+ <remarks>This structure is only used internaly.</remarks>
+</member>
+<member name="F:UcanDotNET.USBcanServer.tUcanInitCanParam.m_dwSize">
+ <summary>size of this structure (only used internaly)</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.tUcanInitCanParam.m_bMode">
+ <summary>selects the mode of CAN controller (see enum <see cref="T:UcanDotNET.USBcanServer.tUcanMode"/>)</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.tUcanInitCanParam.m_bBTR0">
+ <summary>Bus Timing Register 0 (see enum <see cref="T:UcanDotNET.USBcanServer.eUcanBaudrate"/>)</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.tUcanInitCanParam.m_bBTR1">
+ <summary>Bus Timing Register 1 (see enum <see cref="T:UcanDotNET.USBcanServer.eUcanBaudrate"/>)</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.tUcanInitCanParam.m_bOCR">
+ <summary>Output Controll Register (see enum <see cref="T:UcanDotNET.USBcanServer.eUcanOutputControl"/>)</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.tUcanInitCanParam.m_dwAMR">
+ <summary>Acceptance Mask Register (see method <see cref="M:UcanDotNET.USBcanServer.SetAcceptance(System.Byte,System.Int32,System.Int32)"/>)</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.tUcanInitCanParam.m_dwACR">
+ <summary>Acceptance Code Register (see method <see cref="M:UcanDotNET.USBcanServer.SetAcceptance(System.Byte,System.Int32,System.Int32)"/>)</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.tUcanInitCanParam.m_dwBaudrate">
+ <summary>Baudrate Register for all sysWORXX USB-CANmoduls (see enum <see cref="T:UcanDotNET.USBcanServer.eUcanBaudrateEx"/>)</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.tUcanInitCanParam.m_wNrOfRxBufferEntries">
+ <summary>number of receive buffer entries (default is 4096)</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.tUcanInitCanParam.m_wNrOfTxBufferEntries">
+ <summary>number of transmit buffer entries (default is 4096)</summary>
+</member>
+<member name="T:UcanDotNET.USBcanServer.tUcanHardwareInfoEx">
+ <summary>Structure including hardware information about the USB-CANmodul.
+ This structure is used with the method <see cref="M:UcanDotNET.USBcanServer.GetHardwareInfo(UcanDotNET.USBcanServer.tUcanHardwareInfoEx@,UcanDotNET.USBcanServer.tUcanChannelInfo@,UcanDotNET.USBcanServer.tUcanChannelInfo@)"/>.</summary>
+ <seealso cref="M:UcanDotNET.USBcanServer.GetHardwareInfo(UcanDotNET.USBcanServer.tUcanHardwareInfoEx@,UcanDotNET.USBcanServer.tUcanChannelInfo@,UcanDotNET.USBcanServer.tUcanChannelInfo@)"/>
+</member>
+<member name="F:UcanDotNET.USBcanServer.tUcanHardwareInfoEx.m_dwSize">
+ <summary>size of this structure (only used internaly)</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.tUcanHardwareInfoEx.m_UcanHandle">
+ <summary>USB-CAN-Handle assigned by the DLL</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.tUcanHardwareInfoEx.m_bDeviceNr">
+ <summary>device number of the USB-CANmodul</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.tUcanHardwareInfoEx.m_dwSerialNr">
+ <summary>serial number from USB-CANmodul</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.tUcanHardwareInfoEx.m_dwFwVersionEx">
+ <summary>version of firmware</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.tUcanHardwareInfoEx.m_dwProductCode">
+ <summary>product code (see enum <see cref="T:UcanDotNET.USBcanServer.eUcanProductCode"/>)</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.tUcanHardwareInfoEx.m_dwUniqueId0">
+ <summary>unique ID (available since V5.01) !!! m_dwSize must be >= USBCAN_HWINFO_SIZE_V2</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.tUcanHardwareInfoEx.m_dwFlags">
+ <summary>additional flags</summary>
+</member>
+<member name="T:UcanDotNET.USBcanServer.tUcanHardwareInitInfo">
+ <summary>Structure including information about the enumeration of USB-CANmoduls.</summary>
+ <seealso cref="M:UcanDotNET.USBcanServer.EnumerateHardware(System.Byte,System.Byte,System.Int32,System.Int32,System.Int32,System.Int32,UcanDotNET.USBcanServer.EnumDelegateCallback,System.Boolean)"/>
+ <remarks>This structure is only used internaly.</remarks>
+</member>
+<member name="F:UcanDotNET.USBcanServer.tUcanHardwareInitInfo.m_dwSize">
+ <summary>size of this structure</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.tUcanHardwareInitInfo.m_fDoInitialize">
+ <summary>specifies if the found module should be initialized by the DLL</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.tUcanHardwareInitInfo.m_pUcanHandle">
+ <summary>pointer to variable receiving the USB-CAN-Handle</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.tUcanHardwareInitInfo.m_fpCallbackFktEx">
+ <summary>pointer to callback function</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.tUcanHardwareInitInfo.m_pCallbackArg">
+ <summary>pointer to user defined parameter for callback function</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.tUcanHardwareInitInfo.m_fTryNext">
+ <summary>specifies if a further module should be found</summary>
+</member>
+<member name="T:UcanDotNET.USBcanServer.tUcanChannelInfo">
+ <summary>Structure including CAN channel information.
+ This structure is used with the method <see cref="M:UcanDotNET.USBcanServer.GetHardwareInfo(UcanDotNET.USBcanServer.tUcanHardwareInfoEx@,UcanDotNET.USBcanServer.tUcanChannelInfo@,UcanDotNET.USBcanServer.tUcanChannelInfo@)"/>.</summary>
+ <seealso cref="M:UcanDotNET.USBcanServer.GetHardwareInfo(UcanDotNET.USBcanServer.tUcanHardwareInfoEx@,UcanDotNET.USBcanServer.tUcanChannelInfo@,UcanDotNET.USBcanServer.tUcanChannelInfo@)"/>
+</member>
+<member name="F:UcanDotNET.USBcanServer.tUcanChannelInfo.m_dwSize">
+ <summary>size of this structure (only used internaly)</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.tUcanChannelInfo.m_bMode">
+ <summary>operation mode of CAN controller (see enum <see cref="T:UcanDotNET.USBcanServer.tUcanMode"/>)</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.tUcanChannelInfo.m_bBTR0">
+ <summary>Bus Timing Register 0 (see enum <see cref="T:UcanDotNET.USBcanServer.eUcanBaudrate"/>)</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.tUcanChannelInfo.m_bBTR1">
+ <summary>Bus Timing Register 1 (see enum <see cref="T:UcanDotNET.USBcanServer.eUcanBaudrate"/>)</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.tUcanChannelInfo.m_bOCR">
+ <summary>Output Controll Register (see enum <see cref="T:UcanDotNET.USBcanServer.eUcanOutputControl"/>)</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.tUcanChannelInfo.m_dwAMR">
+ <summary>Acceptance Mask Register (see method <see cref="M:UcanDotNET.USBcanServer.SetAcceptance(System.Byte,System.Int32,System.Int32)"/>)</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.tUcanChannelInfo.m_dwACR">
+ <summary>Acceptance Code Register (see method <see cref="M:UcanDotNET.USBcanServer.SetAcceptance(System.Byte,System.Int32,System.Int32)"/>)</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.tUcanChannelInfo.m_dwBaudrate">
+ <summary>Baudrate Register for all sysWORXX USB-CANmoduls (see enum <see cref="T:UcanDotNET.USBcanServer.eUcanBaudrateEx"/>)</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.tUcanChannelInfo.m_fCanIsInit">
+ <summary>True if the CAN interface is initialized, otherwise false.</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.tUcanChannelInfo.m_wCanStatus">
+ <summary>CAN status (same as received by method <see cref="M:UcanDotNET.USBcanServer.GetStatus(System.Byte,UcanDotNET.USBcanServer.tStatusStruct@)"/>).</summary>
+</member>
+<member name="T:UcanDotNET.USBcanServer.tUcanMode">
+ <summary>Specifies values for operation mode of a CAN channel.
+ These values can be combined by OR operation with the method <see cref="M:UcanDotNET.USBcanServer.InitCan(System.Byte,System.Int16,System.Int32,System.Int32,System.Int32,System.Byte,System.Byte)"/>.</summary>
+ <seealso cref="M:UcanDotNET.USBcanServer.InitCan(System.Byte,System.Int16,System.Int32,System.Int32,System.Int32,System.Byte,System.Byte)"/>
+</member>
+<member name="F:UcanDotNET.USBcanServer.tUcanMode.kUcanModeNormal">
+ <summary>normal operation mode (transmitting and receiving)</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.tUcanMode.kUcanModeListenOnly">
+ <summary>listen only mode (receiving only, no ACK at CAN bus)</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.tUcanMode.kUcanModeTxEcho">
+ <summary>CAN messages which was sent will be received back with method <see cref="M:UcanDotNET.USBcanServer.ReadCanMsg(System.Byte@,UcanDotNET.USBcanServer.tCanMsgStruct[]@,System.Int32@)"/>.</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.tUcanMode.kUcanModeRxOrderCh">
+ <summary>reserved (not implemented in this version)</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.tUcanMode.kUcanModeHighResTimer">
+ <summary>high resolution time stamps in received CAN messages (only avaylable with STM derivates)</summary>
+</member>
+<member name="T:UcanDotNET.USBcanServer.tUcanMsgCountInfo">
+ <summary>Structure including the number of sent and received CAN messages.
+ This structure is used with the method <see cref="M:UcanDotNET.USBcanServer.GetMsgCountInfo(System.Byte,System.Int16@,System.Int16@)"/>.</summary>
+ <seeelso cref="M:UcanDotNET.USBcanServer.GetMsgCountInfo(System.Byte,System.Int16@,System.Int16@)"/>
+ <remarks>This structure is only used internaly.</remarks>
+</member>
+<member name="F:UcanDotNET.USBcanServer.tUcanMsgCountInfo.m_wSentMsgCount">
+ <summary>number of sent CAN messages</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.tUcanMsgCountInfo.m_wRecvdMsgCount">
+ <summary>number of received CAN messages</summary>
+</member>
+<member name="T:UcanDotNET.USBcanServer.tUcanVersionType">
+ <summary>Specifies values for receiving the version information of several driver files.</summary>
+ <remarks>These values are only used internaly.</remarks>
+</member>
+<member name="F:UcanDotNET.USBcanServer.tUcanVersionType.kVerTypeUserLib">
+ <summary>version of the USB-CAN-library</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.tUcanVersionType.kVerTypeUserDll">
+ <summary>equivalent to <c>kVerTypeUserLib</c></summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.tUcanVersionType.kVerTypeSysDrv">
+ <summary>version of USBCAN.SYS (not supported in this version)</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.tUcanVersionType.kVerTypeFirmware">
+ <summary>version of firmware in hardware (not supported, use method <see cref="M:UcanDotNET.USBcanServer.GetFwVersion"/>)</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.tUcanVersionType.kVerTypeNetDrv">
+ <summary>version of UCANNET.SYS</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.tUcanVersionType.kVerTypeSysLd">
+ <summary>version of USBCANLD.SYS</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.tUcanVersionType.kVerTypeSysL2">
+ <summary>version of USBCANL2.SYS</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.tUcanVersionType.kVerTypeSysL3">
+ <summary>version of USBCANL3.SYS</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.tUcanVersionType.kVerTypeSysL4">
+ <summary>version of USBCANL4.SYS</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.tUcanVersionType.kVerTypeSysL5">
+ <summary>version of USBCANL5.SYS</summary>
+</member>
+<member name="F:UcanDotNET.USBcanServer.tUcanVersionType.kVerTypeCpl">
+ <summary>version of USBCANCP.CPL</summary>
+</member>
+<member name="E:UcanDotNET.USBcanServer.InitHwEvent">
+ <summary>Event occurs when an USB-CANmodul has been initialized (see method <see cref="M:UcanDotNET.USBcanServer.InitHardware(System.Byte)"/>).</summary>
+ <remarks>
+ <para>Do not call any class method within an event handler to prevent dead locks.</para>
+ </remarks>
+ <seealso cref="M:UcanDotNET.USBcanServer.InitHardware(System.Byte)"/>)
+</member>
+<member name="E:UcanDotNET.USBcanServer.InitCanEvent">
+ <summary>Event occurs when a CAN interface of an USB-CANmodul has been initialized.</summary>
+ <param name="bChannel_p">Specifies the CAN channel which was initialized (see method <see cref="M:UcanDotNET.USBcanServer.InitCan(System.Byte,System.Int16,System.Int32,System.Int32,System.Int32,System.Byte,System.Byte)"/>).</param>
+ <remarks>
+ <para>Do not call any class method within an event handler to prevent dead locks.</para>
+ </remarks>
+ <seealso cref="M:UcanDotNET.USBcanServer.InitCan(System.Byte,System.Int16,System.Int32,System.Int32,System.Int32,System.Byte,System.Byte)"/>)
+</member>
+<member name="E:UcanDotNET.USBcanServer.CanMsgReceivedEvent">
+ <summary>Event occurs when at leas one CAN message has been received.</summary>
+ <param name="bChannel_p">Specifies the CAN channel which received CAN messages.</param>
+ <remarks>
+ <para>Call the method <see cref="M:UcanDotNET.USBcanServer.ReadCanMsg(System.Byte@,UcanDotNET.USBcanServer.tCanMsgStruct[]@,System.Int32@)"/> to receive the CAN messages.</para>
+ <para>Do not call any class method within an event handler to prevent dead locks.</para>
+ </remarks>
+ <seealso cref="M:UcanDotNET.USBcanServer.ReadCanMsg(System.Byte@,UcanDotNET.USBcanServer.tCanMsgStruct[]@,System.Int32@)"/>)
+</member>
+<member name="E:UcanDotNET.USBcanServer.StatusEvent">
+ <summary>Event occurs when the error status of a module has been changed.</summary>
+ <param name="bChannel_p">Specifies the CAN channel which status has been changed.</param>
+ <remarks>
+ <para>Call the method <see cref="M:UcanDotNET.USBcanServer.GetStatus(System.Byte,UcanDotNET.USBcanServer.tStatusStruct@)"/> to receive the error status.</para>
+ <para>Do not call any class method within an event handler to prevent dead locks.</para>
+ </remarks>
+ <seealso cref="M:UcanDotNET.USBcanServer.GetStatus(System.Byte,UcanDotNET.USBcanServer.tStatusStruct@)"/>)
+</member>
+<member name="E:UcanDotNET.USBcanServer.DeinitCanEvent">
+ <summary>Event occurs when a CAN interface has been deinitialized (see method <see cref="M:UcanDotNET.USBcanServer.Shutdown(System.Byte,System.Boolean)"/>).</summary>
+ <param name="bChannel_p">Specifies the CAN channel which status has been changed.</param>
+ <remarks>
+ <para>Do not call any class method within an event handler to prevent dead locks.</para>
+ </remarks>
+ <seealso cref="M:UcanDotNET.USBcanServer.Shutdown(System.Byte,System.Boolean)"/>)
+</member>
+<member name="E:UcanDotNET.USBcanServer.DeinitHwEvent">
+ <summary>Event occurs when an USB-CANmodul has been deinitialized (see method <see cref="M:UcanDotNET.USBcanServer.Shutdown(System.Byte,System.Boolean)"/>).</summary>
+ <remarks>
+ <para>Do not call any class method within an event handler to prevent dead locks.</para>
+ </remarks>
+ <seealso cref="M:UcanDotNET.USBcanServer.Shutdown(System.Byte,System.Boolean)"/>)
+</member>
+<member name="E:UcanDotNET.USBcanServer.ConnectEvent">
+ <summary>Event occurs when a new USB-CANmodul has been connected to the host.</summary>
+ <remarks>
+ <para>Do not call any class method within an event handler to prevent dead locks.</para>
+ </remarks>
+</member>
+<member name="E:UcanDotNET.USBcanServer.DisconnectEvent">
+ <summary>Event occurs when an USB-CANmodul has been disconnected from the host.</summary>
+ <remarks>
+ <para>Do not call any class method within an event handler to prevent dead locks.</para>
+ </remarks>
+</member>
+<member name="E:UcanDotNET.USBcanServer.FatalDisconnectEvent">
+ <summary>Event occurs when an USB-CANmodul has been disconnected from the host which was currently initialized.</summary>
+ <remarks>
+ <para>No method can be called for this module.</para>
+ <para>Do not call any class method within an event handler to prevent dead locks.</para>
+ </remarks>
+</member>
+<member name="M:UcanDotNET.USBcanServer.EnumerateHardware(System.Byte,System.Byte,System.Int32,System.Int32,System.Int32,System.Int32,UcanDotNET.USBcanServer.EnumDelegateCallback,System.Boolean)">
+ <summary>
+ Enumerates all devices which matches with the filter parameters for device number, serial number and product code.
+ </summary>
+ <param name="bDeviceNrLow_p">[IN] lowest device number</param>
+ <param name="bDeviceNrHigh_p">[IN] highest device number</param>
+ <param name="dwSerialNrLow_p">[IN] lowest serial number</param>
+ <param name="dwSerialNrHigh_p">[IN] highest serial number</param>
+ <param name="dwProductCodeLow_p">[IN] lowest product code</param>
+ <param name="dwProductCodeHigh_p">[IN] highest product code</param>
+ <param name="fpCallback_p">[IN] callback handler for controling the enumeration</param>
+ <param name="fEnumUsedDevs_p">[IN] set to True if already used devices also should be enumerated</param>
+ <returns>Array of class USBcanServer holding all found and initialized modules.</returns>
+ <remarks>Already used devices cannot be initialized. They only are passed to the callback handler.</remarks>
+</member>
+<member name="M:UcanDotNET.USBcanServer.EnumerateHardware(System.Byte,System.Byte,UcanDotNET.USBcanServer.EnumDelegateCallback,System.Boolean)">
+ <summary>
+ Enumerates all device with the matches with the filter parameter for device number.
+ </summary>
+ <param name="bDeviceNrLow_p">[IN] lowest device number</param>
+ <param name="bDeviceNrHigh_p">[IN] highest device number</param>
+ <param name="fpCallback_p">[IN] callback handler for controling the enumeration</param>
+ <param name="fEnumUsedDevs_p">[IN] set to True if already used devices also should be enumerated</param>
+ <returns>Array of class USBcanServer holding all found and initialized modules.</returns>
+ <remarks>Already used devices cannot be initialized. They only are passed to the callback handler.</remarks>
+</member>
+<member name="M:UcanDotNET.USBcanServer.EnumerateHardware(System.Int32,System.Int32,UcanDotNET.USBcanServer.EnumDelegateCallback,System.Boolean)">
+ <summary>
+ Enumerates all device with the matches with the filter parameter for product code.
+ </summary>
+ <param name="dwProductCodeLow_p">[IN] lowest product code</param>
+ <param name="dwProductCodeHigh_p">[IN] highest product code</param>
+ <param name="fpCallback_p">[IN] callback handler for controling the enumeration</param>
+ <param name="fEnumUsedDevs_p">[IN] set to True if already used devices also should be enumerated</param>
+ <returns>Array of class USBcanServer holding all found and initialized modules.</returns>
+ <remarks>Already used devices cannot be initialized. They only are passed to the callback handler.</remarks>
+</member>
+<member name="M:UcanDotNET.USBcanServer.InitHardware(System.Byte)">
+ <summary>
+ Initializes the device with the corresponding device number.
+ </summary>
+ <param name="bDeviceNr_p">[IN] device number (0 – 254, or <see cref="F:UcanDotNET.USBcanServer.USBCAN_ANY_MODULE"/> for the first device)</param>
+ <returns>Error code of the function.</returns>
+ <remarks>The event <see cref="E:UcanDotNET.USBcanServer.InitHwEvent"/> will occur on success.</remarks>
+</member>
+<member name="M:UcanDotNET.USBcanServer.InitHardware(System.Int32)">
+ <summary>
+ Initializes the device with the corresponding device number.
+ </summary>
+ <param name="dwSerialNr_p">[IN] serial number of the USB-CANmodul</param>
+ <returns>Error code of the function.</returns>
+ <remarks>The event <see cref="E:UcanDotNET.USBcanServer.InitHwEvent"/> will occur on success.</remarks>
+</member>
+<member name="M:UcanDotNET.USBcanServer.InitCan(System.Byte,System.Int16,System.Int32,System.Int32,System.Int32,System.Byte,System.Byte)">
+ <summary>
+ Initializes a specific CAN channel of a device.
+ </summary>
+ <param name="bChannel_p">[IN] CAN channel, to be initialized (<see cref="F:UcanDotNET.USBcanServer.eUcanChannel.USBCAN_CHANNEL_CH0"/> or <see cref="F:UcanDotNET.USBcanServer.eUcanChannel.USBCAN_CHANNEL_CH1"/>).</param>
+ <param name="wBTR_p">[IN] Baud rate register BTR0 as high byte, baud rate register BTR1 as low byte (see enum <see cref="T:UcanDotNET.USBcanServer.eUcanBaudrate"/>).</param>
+ <param name="dwBaudrate_p">[IN] Baud rate register for all sysWORXX USB-CANmoduls (see enum <see cref="T:UcanDotNET.USBcanServer.eUcanBaudrateEx"/>).</param>
+ <param name="dwAMR_p">[IN] Acceptance filter mask (see method <see cref="M:UcanDotNET.USBcanServer.SetAcceptance(System.Byte,System.Int32,System.Int32)"/>).</param>
+ <param name="dwACR_p">[IN] Acceptance filter code (see method <see cref="M:UcanDotNET.USBcanServer.SetAcceptance(System.Byte,System.Int32,System.Int32)"/>).</param>
+ <param name="bMode_p">[IN] Transmission mode of CAN channel (see enum <see cref="T:UcanDotNET.USBcanServer.tUcanMode"/>).</param>
+ <param name="bOCR_p">[IN] Output Control Register (see enum <see cref="T:UcanDotNET.USBcanServer.eUcanOutputControl"/>).</param>
+ <returns>Error code of the function.</returns>
+ <remarks>
+ <para>With GW-001, GW-002 and USB-CANmodul1 only channel 0 is available.</para>
+ <para>The event <see cref="E:UcanDotNET.USBcanServer.InitCanEvent"/> will occur on success.</para>
+ </remarks>
+ <seealso cref="M:UcanDotNET.USBcanServer.SetBaudrate(System.Byte,System.Int16,System.Int32)"/>
+ <seealso cref="M:UcanDotNET.USBcanServer.SetAcceptance(System.Byte,System.Int32,System.Int32)"/>
+</member>
+<member name="M:UcanDotNET.USBcanServer.ReadCanMsg(System.Byte@,UcanDotNET.USBcanServer.tCanMsgStruct[]@,System.Int32@)">
+ <summary>
+ Reads one or more CAN-messages from the buffer of the specified CAN channel.
+ </summary>
+ <param name="pbChannel_p">[IN/OUT] Reference to a variable containing the CAN-Channel to read from
+ (<see cref="F:UcanDotNET.USBcanServer.eUcanChannel.USBCAN_CHANNEL_CH0"/>, <see cref="F:UcanDotNET.USBcanServer.eUcanChannel.USBCAN_CHANNEL_CH1"/> or <see cref="F:UcanDotNET.USBcanServer.eUcanChannel.USBCAN_CHANNEL_ANY"/>).
+ When USBCAN_CHANNEL_ANY was specified this referenced variable receives the CAN channel where the read CAN messages came from.</param>
+ <param name="pCanMsgStruct_p">[OUT] Array of several CAN message structure (see structure <see cref="T:UcanDotNET.USBcanServer.tCanMsgStruct"/>). This address must not be NULL.</param>
+ <param name="dwCount_p">[OUT] Reference to a variable that receives the number of read CAN messages.</param>
+ <returns>Error code of the function.</returns>
+ <remarks>This function writes the actual number of CAN messages that were read from the device to the referenced variable dwCount_p.</remarks>
+ <seealso cref="T:UcanDotNET.USBcanServer.tCanMsgStruct"/>
+</member>
+<member name="M:UcanDotNET.USBcanServer.WriteCanMsg(System.Byte,UcanDotNET.USBcanServer.tCanMsgStruct[]@,System.Int32@)">
+ <summary>
+ Transmits one ore more CAN messages through the specified CAN channel of the device.
+ </summary>
+ <param name="bChannel_p">[IN] CAN-Channel, which is to be used (<see cref="F:UcanDotNET.USBcanServer.eUcanChannel.USBCAN_CHANNEL_CH0"/> or <see cref="F:UcanDotNET.USBcanServer.eUcanChannel.USBCAN_CHANNEL_CH1"/>).</param>
+ <param name="pCanMsgList_p">[IN] Array of CAN message structure (see structure <see cref="T:UcanDotNET.USBcanServer.tCanMsgStruct"/>).</param>
+ <param name="dwCount_p">[OUT] Reference to a variable for receiving the number of successfuly transmitted CAN messages.</param>
+ <returns>Error code of the function.</returns>
+ <remarks></remarks>
+ <seealso cref="T:UcanDotNET.USBcanServer.tCanMsgStruct"/>
+</member>
+<member name="M:UcanDotNET.USBcanServer.SetBaudrate(System.Byte,System.Int16,System.Int32)">
+ <summary>
+ This function is used to configure the baud rate of specific CAN channel of a device.
+ </summary>
+ <param name="bChannel_p">[IN] CAN channel, which is to be configured (<see cref="F:UcanDotNET.USBcanServer.eUcanChannel.USBCAN_CHANNEL_CH0"/> or <see cref="F:UcanDotNET.USBcanServer.eUcanChannel.USBCAN_CHANNEL_CH1"/>).</param>
+ <param name="wBTR_p">[IN] Baud rate register BTR0 as high byte, baud rate register BTR1 as low byte (see enum <see cref="T:UcanDotNET.USBcanServer.eUcanBaudrate"/>).</param>
+ <param name="dwBaudrate_p">[IN] Baud rate register for all sysWORXX USB-CANmoduls (see enum <see cref="T:UcanDotNET.USBcanServer.eUcanBaudrateEx"/>).</param>
+ <returns>Error code of the function.</returns>
+ <remarks></remarks>
+</member>
+<member name="M:UcanDotNET.USBcanServer.SetAcceptance(System.Byte,System.Int32,System.Int32)">
+ <summary>
+ This function is used to change the acceptance filter values for a specific CAN channel on a device.
+ </summary>
+ <param name="bChannel_p">[IN] CAN channel, which is to be configured (<see cref="F:UcanDotNET.USBcanServer.eUcanChannel.USBCAN_CHANNEL_CH0"/> or <see cref="F:UcanDotNET.USBcanServer.eUcanChannel.USBCAN_CHANNEL_CH1"/>).</param>
+ <param name="dwAMR_p">[IN] Acceptance filter mask (AMR).</param>
+ <param name="dwACR_p">[IN] Acceptance filter code (ACR).</param>
+ <returns>Error code of the function.</returns>
+ <remarks>
+    <para>The format of the acceptance filter mask and code is regarding the SJA1000 CAN controller.</para>
+    <para>For standard CAN messages (CAN2.0A means 11 bit identifier):</para>
+    <para><list type="table">
+       <listheader ><term>bits of AMR/ACR</term><description>description</description></listheader>
+       <item><term>0-7:</term><description>Second data byte of the CAN message.</description></item>
+       <item><term>8-15:</term><description>First data byte of the CAN message.</description></item>
+       <item><term>16-19:</term><description>unused</description></item>
+       <item><term>20:</term><description>RTR</description></item>
+       <item><term>21-31:</term><description>11 bit CAN identifier</description></item>
+    </list> </para>
+    <para>For extended CAN messages (CAN2.0B means 29 bit identifier):</para>
+    <para><list type="table">
+       <listheader ><term>bits of AMR/ACR</term><description>description</description></listheader>
+       <item><term>0-1:</term><description>unused</description></item>
+       <item><term>2:</term><description>RTR</description></item>
+       <item><term>3-31:</term><description>29 bit CAN identifier</description></item>
+    </list> </para>
+    <para>The CAN message will be received when the term <c>(CAN-ID xor ACR) and AMR</c> results the value <c>0xFFFFFFFF</c>.</para>
+    <para>The values <see cref="F:UcanDotNET.USBcanServer.USBCAN_AMR_ALL"/> and <see cref="F:UcanDotNET.USBcanServer.USBCAN_ACR_ALL"/> will receive all CAN messages.</para>
+ </remarks>
+</member>
+<member name="M:UcanDotNET.USBcanServer.GetStatus(System.Byte,UcanDotNET.USBcanServer.tStatusStruct@)">
+ <summary>
+ Returns the error status of a specific CAN channel.
+ </summary>
+ <param name="pbChannel_p">[IN] CAN channel, to be used (<see cref="F:UcanDotNET.USBcanServer.eUcanChannel.USBCAN_CHANNEL_CH0"/> or <see cref="F:UcanDotNET.USBcanServer.eUcanChannel.USBCAN_CHANNEL_CH1"/>).</param>
+ <param name="pStatus_p">[OUT] Reference to Status structure (see structure <see cref="T:UcanDotNET.USBcanServer.tStatusStruct"/>).</param>
+ <returns>Error code of the function.</returns>
+ <remarks></remarks>
+ <seealso cref="M:UcanDotNET.USBcanServer.GetCanStatusMessage(System.Int16)"/>
+ <seealso cref="T:UcanDotNET.USBcanServer.tStatusStruct"/>
+ <seealso cref="T:UcanDotNET.USBcanServer.eUcanCanStatus"/>
+ <seealso cref="T:UcanDotNET.USBcanServer.eUcanUsbStatus"/>
+</member>
+<member name="M:UcanDotNET.USBcanServer.GetMsgCountInfo(System.Byte,System.Int16@,System.Int16@)">
+ <summary>
+ Reads the message counters of the specified CAN channel.
+ </summary>
+ <param name="bChannel_p">[IN] CAN channel, which is to be used (<see cref="F:UcanDotNET.USBcanServer.eUcanChannel.USBCAN_CHANNEL_CH0"/> or <see cref="F:UcanDotNET.USBcanServer.eUcanChannel.USBCAN_CHANNEL_CH1"/>).</param>
+ <param name="wRecvdMsgCount_p">[OUT] Number of CAN messages received.</param>
+ <param name="wSentMsgCount_p">[OUT] Number of CAN messages sent.</param>
+ <returns>Error code of the function.</returns>
+ <remarks></remarks>
+</member>
+<member name="M:UcanDotNET.USBcanServer.ResetCan(System.Byte,System.Int32)">
+ <summary>
+ Resets a CAN channel of a device (hardware reset, empty buffer, and so on).
+ </summary>
+ <param name="bChannel_p">[IN] CAN channel, to be reset (<see cref="F:UcanDotNET.USBcanServer.eUcanChannel.USBCAN_CHANNEL_CH0"/> or <see cref="F:UcanDotNET.USBcanServer.eUcanChannel.USBCAN_CHANNEL_CH1"/>).</param>
+ <param name="dwFlags_p">[IN] Flags defines what should be reset (see enum <see cref="T:UcanDotNET.USBcanServer.eUcanResetFlags"/>).</param>
+ <returns>Error code of the function.</returns>
+ <remarks></remarks>
+</member>
+<member name="M:UcanDotNET.USBcanServer.GetHardwareInfo(UcanDotNET.USBcanServer.tUcanHardwareInfoEx@,UcanDotNET.USBcanServer.tUcanChannelInfo@,UcanDotNET.USBcanServer.tUcanChannelInfo@)">
+ <summary>
+ Returns the extended hardware information of a device. With multi-channel
+ USB-CANmoduls the information for both CAN channels are returned separately.
+ </summary>
+ <param name="pHwInfo_p">[OUT] Reference to structure where the extended hardware
+ information is to be stored (see structure <see cref="T:UcanDotNET.USBcanServer.tUcanHardwareInfoEx"/>).</param>
+ <param name="pCanInfoCh0_p">[OUT] Reference to structure where the information of CAN channel 0
+ is to be stored (see structure <see cref="T:UcanDotNET.USBcanServer.tUcanChannelInfo"/>).</param>
+ <param name="pCanInfoCh1_p">[OUT] Reference to structure where the information of CAN channel 1
+ is to be stored (see structure <see cref="T:UcanDotNET.USBcanServer.tUcanChannelInfo"/>).</param>
+ <returns>Error code of the function.</returns>
+ <remarks></remarks>
+ <seealso cref="T:UcanDotNET.USBcanServer.tUcanHardwareInfoEx"/>
+ <seealso cref="T:UcanDotNET.USBcanServer.tUcanChannelInfo"/>
+</member>
+<member name="M:UcanDotNET.USBcanServer.GetFwVersion">
+ <summary>
+ Returns the firmware version number of the device.
+ </summary>
+ <returns>firmware version number
+ <list type="table">
+ <listheader><term>bits</term><description>description</description></listheader>  
+ <item><term>0-7:</term><description>major version</description></item>  
+ <item><term>8-15:</term><description>minor version</description></item>  
+ <item><term>16-31:</term><description>release version</description></item>  
+ </list></returns>
+ <remarks></remarks>
+</member>
+<member name="M:UcanDotNET.USBcanServer.DefineCyclicCanMsg(System.Byte,UcanDotNET.USBcanServer.tCanMsgStruct[]@)">
+ <summary>
+ Defines a list of CAN messages for automatic transmission.
+ </summary>
+ <param name="bChannel_p">[IN] CAN channel, to be used (<see cref="F:UcanDotNET.USBcanServer.eUcanChannel.USBCAN_CHANNEL_CH0"/> or <see cref="F:UcanDotNET.USBcanServer.eUcanChannel.USBCAN_CHANNEL_CH1"/>).</param>
+ <param name="pCanMsgList_p">[IN] Array of CAN messages (up to 16, see structure <see cref="T:UcanDotNET.USBcanServer.tCanMsgStruct"/>), or nothing to delete an older list.</param>
+ <returns>Error code of the function.</returns>
+ <remarks>When this function is called an older list will be deleted.</remarks>
+ <seealso cref="T:UcanDotNET.USBcanServer.tCanMsgStruct"/>
+</member>
+<member name="M:UcanDotNET.USBcanServer.ReadCyclicCanMsg(System.Byte,UcanDotNET.USBcanServer.tCanMsgStruct[]@,System.Int32@)">
+ <summary>
+ Reads back the list of CAN messages for automatically sending.
+ </summary>
+ <param name="bChannel_p">[IN] CAN channel, to be used (<see cref="F:UcanDotNET.USBcanServer.eUcanChannel.USBCAN_CHANNEL_CH0"/> or <see cref="F:UcanDotNET.USBcanServer.eUcanChannel.USBCAN_CHANNEL_CH1"/>).</param>
+ <param name="pCanMsgList_p">[OUT] Array of CAN messages (up to 16, see structure <see cref="T:UcanDotNET.USBcanServer.tCanMsgStruct"/>) for receiving the cyclic CAN messages.</param>
+ <param name="pdwCount_p">[OUT] Reference to a variable to receive the number of cyclic CAN messages.</param>
+ <returns>Error code of the function.</returns>
+ <remarks></remarks>
+ <seealso cref="T:UcanDotNET.USBcanServer.tCanMsgStruct"/>
+</member>
+<member name="M:UcanDotNET.USBcanServer.EnableCyclicCanMsg(System.Byte,System.Int32)">
+ <summary>
+ Enables or disables the automatically sending.
+ </summary>
+ <param name="bChannel_p">[IN] CAN channel, to be used (<see cref="F:UcanDotNET.USBcanServer.eUcanChannel.USBCAN_CHANNEL_CH0"/> or <see cref="F:UcanDotNET.USBcanServer.eUcanChannel.USBCAN_CHANNEL_CH1"/>).</param>
+ <param name="dwFlags_p">[IN] Flags for enabling or disabling (see enum <see cref="T:UcanDotNET.USBcanServer.eUcanCyclicFlags"/>).</param>
+ <returns>Error code of the function.</returns>
+ <remarks></remarks>
+ <seealso cref="T:UcanDotNET.USBcanServer.eUcanCyclicFlags"/>
+</member>
+<member name="M:UcanDotNET.USBcanServer.GetMsgPending(System.Byte,System.Int32,System.Int32@)">
+ <summary>
+ Returns the number of pending CAN messages.
+ </summary>
+ <param name="bChannel_p">[IN] CAN channel, to be used (<see cref="F:UcanDotNET.USBcanServer.eUcanChannel.USBCAN_CHANNEL_CH0"/> or <see cref="F:UcanDotNET.USBcanServer.eUcanChannel.USBCAN_CHANNEL_CH1"/>).</param>
+ <param name="dwFlags_p">[IN] Flags specifies which buffers shoulb be checked (see enum <see cref="T:UcanDotNET.USBcanServer.eUcanPendingFlags"/>).</param>
+ <param name="pdwPendingCount_p">[OUT] Reference to a variable to receive the number of pending messages.</param>
+ <returns>Error code of the function.</returns>
+ <remarks></remarks>
+ <seealso cref="T:UcanDotNET.USBcanServer.eUcanPendingFlags"/>)
+</member>
+<member name="M:UcanDotNET.USBcanServer.GetCanErrorCounter(System.Byte,System.Int32@,System.Int32@)">
+ <summary>
+ Reads the current value of the error counters within the CAN controller.
+ </summary>
+ <param name="bChannel_p">[IN] CAN channel, to be used (<see cref="F:UcanDotNET.USBcanServer.eUcanChannel.USBCAN_CHANNEL_CH0"/> or <see cref="F:UcanDotNET.USBcanServer.eUcanChannel.USBCAN_CHANNEL_CH1"/>).</param>
+ <param name="pdwTxErrorCounter_p">[OUT] Reference to a variable to receive the TX error counter.</param>
+ <param name="pdwRxErrorCounter_p">[OUT] Reference to a variable to receive the RX error counter.</param>
+ <returns>Error code of the function.</returns>
+ <remarks>Only available for sysWORXX USB-CANmoduls (NOT for GW-001 and GW-002 !!!).</remarks>
+</member>
+<member name="M:UcanDotNET.USBcanServer.SetTxTimeout(System.Byte,System.Int32)">
+ <summary>
+ Sets the transmission timeout.
+ </summary>
+ <param name="bChannel_p">[IN] CAN channel, to be used (<see cref="F:UcanDotNET.USBcanServer.eUcanChannel.USBCAN_CHANNEL_CH0"/> or <see cref="F:UcanDotNET.USBcanServer.eUcanChannel.USBCAN_CHANNEL_CH1"/>).</param>
+ <param name="dwTxTimeout_p">[IN] transmit timeout in milleseconds (value 0 disables this feature).</param>
+ <returns>Error code of the function.</returns>
+ <remarks>
+ NOTE: When a transmission timeout is set the firmware tries to send
+ a message within this timeout. If it could not be sent the firmware sets
+ the "auto delete" state. Within this state all transmit CAN messages for
+ this channel will be deleted automatically for not blocking the other
+ channel. When firmware does delete a transmit CAN message then a new
+ error status will be set: USBCAN_CANERR_TXMSGLOST (red LED is blinking).
+ </remarks>
+</member>
+<member name="M:UcanDotNET.USBcanServer.Shutdown(System.Byte,System.Boolean)">
+ <summary>
+ Shuts down all CAN interfaces and/or the hardware interface.
+ </summary>
+ <param name="bChannel_p">[IN] CAN channel, to be used (<see cref="F:UcanDotNET.USBcanServer.eUcanChannel.USBCAN_CHANNEL_CH0"/>, <see cref="F:UcanDotNET.USBcanServer.eUcanChannel.USBCAN_CHANNEL_CH1"/> or <see cref="F:UcanDotNET.USBcanServer.eUcanChannel.USBCAN_CHANNEL_ALL"/>).</param>
+ <param name="fShutDownHardware_p">[IN] If true then the hardware interface will be closed too.</param>
+ <returns>Error code of the function.</returns>
+ <remarks>
+ <para>The events <see cref="E:UcanDotNET.USBcanServer.DeinitCanEvent"/> and <see cref="E:UcanDotNET.USBcanServer.DeinitHwEvent"/> will occur on success.</para>
+ </remarks>
+</member>
+<member name="P:UcanDotNET.USBcanServer.IsHardwareInitialized">
+ <summary>
+ Returnes whether hardware interface is initialsized.
+ </summary>
+ <value></value>
+ <returns>True if initialized, otherwise False</returns>
+ <remarks></remarks>
+</member>
+<member name="P:UcanDotNET.USBcanServer.IsCan0Initialized">
+ <summary>
+ Returnes whether CAN interface for channel 0 is initialsized.
+ </summary>
+ <value></value>
+ <returns>True if initialized, otherwise False</returns>
+ <remarks></remarks>
+</member>
+<member name="P:UcanDotNET.USBcanServer.IsCan1Initialized">
+ <summary>
+ Returnes whether CAN interface for channel 1 is initialsized.
+ </summary>
+ <value></value>
+ <returns>True if initialized, otherwise False</returns>
+ <remarks></remarks>
+</member>
+<member name="M:UcanDotNET.USBcanServer.GetUserDllVersion">
+ <summary>
+ <para>Returns the version number of the USBCAN-library.</para>
+ </summary>
+ <returns>software version number
+ <list type="table">  
+ <listheader><term>bits</term><description>description</description></listheader>  
+ <item><term>0-7:</term><description>major version</description></item>  
+ <item><term>8-15:</term><description>minor version</description></item>  
+ <item><term>16-31:</term><description>release version</description></item>  
+ </list></returns>
+ <remarks></remarks>
+</member>
+<member name="M:UcanDotNET.USBcanServer.SetDebugMode(System.Int32,System.String,System.Int32)">
+ <summary>
+ This function enables the creation of a debug log file out of the USBCAN-library. If this
+ feature has already been activated via the USB-CANmodul Control, the content of the
+ “old” log file will be copied to the new file. Further debug information will be appended to
+ the new file.
+ </summary>
+ <param name="dwDbgLevel_p">[IN] debug level (bit format)</param>
+ <param name="pszFilePathName_p">[IN] file path to debug log file</param>
+ <param name="dwFlags_p">[IN] additional flags (bit0: file append mode)</param>
+ <returns>FALSE if logfile not created otherwise TRUE</returns>
+ <remarks></remarks>
+</member>
+<member name="M:UcanDotNET.USBcanServer.GetCanStatusMessage(System.Int16)">
+ <summary>
+ Converts a given CAN status value to the appropriate message string.
+ </summary>
+ <param name="wCanStatus_p">[IN] CAN status value from method <see cref="M:UcanDotNET.USBcanServer.GetStatus(System.Byte,UcanDotNET.USBcanServer.tStatusStruct@)"/>) (see enum <see cref="T:UcanDotNET.USBcanServer.eUcanCanStatus"/>)</param>
+ <returns>Status message string.</returns>
+ <remarks></remarks>
+ <seealso cref="M:UcanDotNET.USBcanServer.GetStatus(System.Byte,UcanDotNET.USBcanServer.tStatusStruct@)"/>
+ <seealso cref="T:UcanDotNET.USBcanServer.eUcanCanStatus"/>
+</member>
+<member name="M:UcanDotNET.USBcanServer.GetBaudrateMessage(System.Byte,System.Byte)">
+ <summary>
+ Converts a given baud rate value for GW-001/GW-002 to the appropriate message string.
+ </summary>
+ <param name="bBTR0_p">[IN] Bus Timing Register 0 (SJA1000)</param>
+ <param name="bBTR1_p">[IN] Bus Timing Register 1 (SJA1000)</param>
+ <returns>Baud rate message string.</returns>
+ <remarks></remarks>
+</member>
+<member name="M:UcanDotNET.USBcanServer.GetBaudrateMessage(System.Int16)">
+ <summary>
+ Converts a given baud rate value for GW-001/GW-002 to the appropriate message string.
+ </summary>
+ <param name="wBTR_p">[IN] Bus Timing Registers (SJA1000), BTR0 in high order byte and BTR1 in low order byte (see enum <see cref="T:UcanDotNET.USBcanServer.eUcanBaudrate"/>).</param>
+ <returns>Baud rate message string.</returns>
+ <remarks></remarks>
+</member>
+<member name="M:UcanDotNET.USBcanServer.GetBaudrateExMessage(System.Int16)">
+ <summary>
+ Converts a given baud rate value for sysWORXX USB-CANmoduls to the appropriate message string.
+ </summary>
+ <param name="dwBTR_p">[IN] Bus Timing Registers (see enum <see cref="T:UcanDotNET.USBcanServer.eUcanBaudrateEx"/>).</param>
+ <returns>Baud rate message string.</returns>
+ <remarks></remarks>
+</member>
+<member name="M:UcanDotNET.USBcanServer.ConvertToMajorVer(System.Int32)">
+ <summary>
+ Converts the a version number into the major version.
+ </summary>
+ <param name="dwVersion_p">[IN] Version number to be converted.</param>
+ <returns>major version</returns>
+ <remarks></remarks>
+</member>
+<member name="M:UcanDotNET.USBcanServer.ConvertToMinorVer(System.Int32)">
+ <summary>
+ Converts the a version number into the minor version.
+ </summary>
+ <param name="dwVersion_p">[IN] Version number to be converted.</param>
+ <returns>minor version</returns>
+ <remarks></remarks>
+</member>
+<member name="M:UcanDotNET.USBcanServer.ConvertToReleaseVer(System.Int32)">
+ <summary>
+ Converts the a version number into the release version.
+ </summary>
+ <param name="dwVersion_p">[IN] Version number to be converted.</param>
+ <returns>release version</returns>
+ <remarks></remarks>
+</member>
+<member name="M:UcanDotNET.USBcanServer.CheckVersionIsEqualOrHigher(System.Int32,System.Int32,System.Int32)">
+ <summary>
+ Checks if the version is equal or higher than a specified value.
+ </summary>
+ <param name="dwVersion_p">[IN] Version number to be checked.</param>
+ <param name="dwCmpMajor_p">[IN] Major version to be compared with.</param>
+ <param name="dwCmpMinor_p">[IN] Minor version to be compared with.</param>
+ <returns>True if equal or higher, otherwise False.</returns>
+ <remarks></remarks>
+</member>
+<member name="M:UcanDotNET.USBcanServer.CheckIs_sysWORXX(UcanDotNET.USBcanServer.tUcanHardwareInfoEx)">
+ <summary>
+ Checks whether the module is a sysWORXX USB-CANmodul.
+ </summary>
+ <param name="HwInfoEx_p">[IN] Extended hardware information structure (see method <see cref="M:UcanDotNET.USBcanServer.GetHardwareInfo(UcanDotNET.USBcanServer.tUcanHardwareInfoEx@,UcanDotNET.USBcanServer.tUcanChannelInfo@,UcanDotNET.USBcanServer.tUcanChannelInfo@)"/>).</param>
+ <returns>True when the module is a sysWORXX USB-CANmodul, otherwise False.</returns>
+ <remarks>Comparable with macro USBCAN_CHECK_IS_SYSWORXX() in USBCAN32.H.</remarks>
+</member>
+<member name="M:UcanDotNET.USBcanServer.CheckIs_G4(UcanDotNET.USBcanServer.tUcanHardwareInfoEx)">
+ <summary>
+ Checks whether the module is an USB-CANmodul of fourth generation (G4).
+ </summary>
+ <param name="HwInfoEx_p">[IN] Extended hardware information structure (see method <see cref="M:UcanDotNET.USBcanServer.GetHardwareInfo(UcanDotNET.USBcanServer.tUcanHardwareInfoEx@,UcanDotNET.USBcanServer.tUcanChannelInfo@,UcanDotNET.USBcanServer.tUcanChannelInfo@)"/>).</param>
+ <returns>True when the module is an USB-CANmodul G4, otherwise False.</returns>
+ <remarks>Comparable with macro USBCAN_CHECK_IS_G4() in USBCAN32.H.</remarks>
+</member>
+<member name="M:UcanDotNET.USBcanServer.CheckIs_G3(UcanDotNET.USBcanServer.tUcanHardwareInfoEx)">
+ <summary>
+ Checks whether the module is an USB-CANmodul of third generation (G3).
+ </summary>
+ <param name="HwInfoEx_p">[IN] Extended hardware information structure (see method <see cref="M:UcanDotNET.USBcanServer.GetHardwareInfo(UcanDotNET.USBcanServer.tUcanHardwareInfoEx@,UcanDotNET.USBcanServer.tUcanChannelInfo@,UcanDotNET.USBcanServer.tUcanChannelInfo@)"/>).</param>
+ <returns>True when the module is an USB-CANmodul G3, otherwise False.</returns>
+ <remarks>Comparable with macro USBCAN_CHECK_IS_G3() in USBCAN32.H.</remarks>
+</member>
+<member name="M:UcanDotNET.USBcanServer.CheckSupportCyclicMsg(UcanDotNET.USBcanServer.tUcanHardwareInfoEx)">
+ <summary>
+ Checks whether the module supports automatically transmission of cyclic CAN messages.
+ </summary>
+ <param name="HwInfoEx_p">[IN] Extended hardware information structure (see method <see cref="M:UcanDotNET.USBcanServer.GetHardwareInfo(UcanDotNET.USBcanServer.tUcanHardwareInfoEx@,UcanDotNET.USBcanServer.tUcanChannelInfo@,UcanDotNET.USBcanServer.tUcanChannelInfo@)"/>).</param>
+ <returns>True when the module does support cyclic CAN messages, otherwise False.</returns>
+ <remarks>Comparable with macro USBCAN_CHECK_SUPPORT_CYCLIC_MSG() in USBCAN32.H.</remarks>
+</member>
+<member name="M:UcanDotNET.USBcanServer.CheckSupportTwoChannel(UcanDotNET.USBcanServer.tUcanHardwareInfoEx)">
+ <summary>
+ Checks whether the module supports two CAN channels (at logical device).
+ </summary>
+ <param name="HwInfoEx_p">[IN] Extended hardware information structure (see method <see cref="M:UcanDotNET.USBcanServer.GetHardwareInfo(UcanDotNET.USBcanServer.tUcanHardwareInfoEx@,UcanDotNET.USBcanServer.tUcanChannelInfo@,UcanDotNET.USBcanServer.tUcanChannelInfo@)"/>).</param>
+ <returns>True when the module (logical device) does support two CAN channels, otherwise False.</returns>
+ <remarks>Comparable with macro USBCAN_CHECK_SUPPORT_TWO_CHANNEL() in USBCAN32.H.</remarks>
+</member>
+<member name="M:UcanDotNET.USBcanServer.CheckSupportTermResistor(UcanDotNET.USBcanServer.tUcanHardwareInfoEx)">
+ <summary>
+ Checks whether the module supports a termination resistor at the CAN bus.
+ </summary>
+ <param name="HwInfoEx_p">[IN] Extended hardware information structure (see method <see cref="M:UcanDotNET.USBcanServer.GetHardwareInfo(UcanDotNET.USBcanServer.tUcanHardwareInfoEx@,UcanDotNET.USBcanServer.tUcanChannelInfo@,UcanDotNET.USBcanServer.tUcanChannelInfo@)"/>).</param>
+ <returns>True when the module does support a termination resistor.</returns>
+ <remarks>Comparable with macro USBCAN_CHECK_SUPPORT_TERM_RESISTOR() in USBCAN32.H.</remarks>
+</member>
+<member name="M:UcanDotNET.USBcanServer.CheckSupportUserPort(UcanDotNET.USBcanServer.tUcanHardwareInfoEx)">
+ <summary>
+ Checks whether the module supports a user I/O port.
+ </summary>
+ <param name="HwInfoEx_p">[IN] Extended hardware information structure (see method <see cref="M:UcanDotNET.USBcanServer.GetHardwareInfo(UcanDotNET.USBcanServer.tUcanHardwareInfoEx@,UcanDotNET.USBcanServer.tUcanChannelInfo@,UcanDotNET.USBcanServer.tUcanChannelInfo@)"/>).</param>
+ <returns>True when the module supports a user I/O port, otherwise False.</returns>
+ <remarks>Comparable with macro USBCAN_CHECK_SUPPORT_USER_PORT() in USBCAN32.H.</remarks>
+</member>
+<member name="M:UcanDotNET.USBcanServer.CheckSupportRbUserPort(UcanDotNET.USBcanServer.tUcanHardwareInfoEx)">
+ <summary>
+ Checks whether the module supports a user I/O port including read back feature.
+ </summary>
+ <param name="HwInfoEx_p">[IN] Extended hardware information structure (see method <see cref="M:UcanDotNET.USBcanServer.GetHardwareInfo(UcanDotNET.USBcanServer.tUcanHardwareInfoEx@,UcanDotNET.USBcanServer.tUcanChannelInfo@,UcanDotNET.USBcanServer.tUcanChannelInfo@)"/>).</param>
+ <returns>True when the module does support a user I/O port including the read back feature, otherwise False.</returns>
+ <remarks>Comparable with macro USBCAN_CHECK_SUPPORT_RBUSER_PORT() in USBCAN32.H.</remarks>
+</member>
+<member name="M:UcanDotNET.USBcanServer.CheckSupportRbCanPort(UcanDotNET.USBcanServer.tUcanHardwareInfoEx)">
+ <summary>
+ Checks whether the module supports a CAN I/O port including read back feature.
+ </summary>
+ <param name="HwInfoEx_p">[IN] Extended hardware information structure (see method <see cref="M:UcanDotNET.USBcanServer.GetHardwareInfo(UcanDotNET.USBcanServer.tUcanHardwareInfoEx@,UcanDotNET.USBcanServer.tUcanChannelInfo@,UcanDotNET.USBcanServer.tUcanChannelInfo@)"/>).</param>
+ <returns>True when the module does support a CAN I/O port including the read back feature, otherwise False.</returns>
+ <remarks>Comparable with macro USBCAN_CHECK_SUPPORT_RBCAN_PORT() in USBCAN32.H.</remarks>
+</member>
+<member name="M:UcanDotNET.USBcanServer.CheckSupportUcannet(UcanDotNET.USBcanServer.tUcanHardwareInfoEx)">
+ <summary>
+ Checks whether the module supports the usage of USB-CANnetwork driver.
+ </summary>
+ <param name="HwInfoEx_p">[IN] Extended hardware information structure (see method <see cref="M:UcanDotNET.USBcanServer.GetHardwareInfo(UcanDotNET.USBcanServer.tUcanHardwareInfoEx@,UcanDotNET.USBcanServer.tUcanChannelInfo@,UcanDotNET.USBcanServer.tUcanChannelInfo@)"/>).</param>
+ <returns>True when the module does support the usage of the USB-CANnetwork driver, otherwise False.</returns>
+ <remarks>Comparable with macro USBCAN_CHECK_SUPPORT_UCANNET() in USBCAN32.H.</remarks>
+</member>
+<member name="M:UcanDotNET.USBcanServer.USBCAN_CALCULATE_AMR(System.Boolean,System.Int32,System.Int32,System.Boolean,System.Boolean)">
+ <summary>
+ Calculates AMR using CAN-ID range as parameter.
+ </summary>
+ <param name="fIsExtended_p">[IN] if TRUE parameters from_id and to_id contains 29-bit CAN-ID.</param>
+ <param name="dwFromId_p">[IN] first CAN-ID which should be received.</param>
+ <param name="dwToId_p">[IN] last CAN-ID which should be received.</param>
+ <param name="fRtrOnly_p">[IN] if TRUE only RTR-Messages should be received, and rtr_too will be ignored.</param>
+ <param name="fRtrToo_p">[IN] if TRUE CAN data frames and RTR-Messages should be received.</param>
+ <returns>Value for AMR.</returns>
+ <remarks>
+ <para>This method only works if both dwFromId_p and dwToId_presults a successive order of bits.</para>
+ <para>Example:</para>
+ <para>    from-id: 0x000  to-id:  0x01F   --> method is working</para>
+ <para>    from-id: 0x400  to-id:  0x4FF   --> method is working</para>
+ <para>    from-id: 0x101  to-id:  0x202   --> method is NOT working</para>
+ <para> </para>
+ <para>The parameters fRtrOnly_p and fRtrToo_p will be ignored with all the modules of 3rd adn 4th generation.</para>
+ </remarks>
+</member>
+<member name="M:UcanDotNET.USBcanServer.USBCAN_CALCULATE_ACR(System.Boolean,System.Int32,System.Int32,System.Boolean,System.Boolean)">
+ <summary>
+ Calculates ACR using CAN-ID range as parameter.
+ </summary>
+ <param name="fIsExtended_p">[IN] if TRUE parameters from_id and to_id contains 29-bit CAN-ID.</param>
+ <param name="dwFromId_p">[IN] first CAN-ID which should be received.</param>
+ <param name="dwToId_p">[IN] last CAN-ID which should be received.</param>
+ <param name="fRtrOnly_p">[IN] if TRUE only RTR-Messages should be received, and rtr_too will be ignored.</param>
+ <param name="fRtrToo_p">[IN] if TRUE CAN data frames and RTR-Messages should be received.</param>
+ <returns>Value for ACR.</returns>
+ <remarks>
+ <para>This method only works if both dwFromId_p and dwToId_presults a successive order of bits.</para>
+ <para>Example:</para>
+ <para>    from-id: 0x000  to-id:  0x01F   --> method is working</para>
+ <para>    from-id: 0x400  to-id:  0x4FF   --> method is working</para>
+ <para>    from-id: 0x101  to-id:  0x202   --> method is NOT working</para>
+ <para> </para>
+ <para>The parameters fRtrOnly_p and fRtrToo_p will be ignored with all the modules of 3rd adn 4th generation.</para>
+ </remarks>
+</member>
+</members>
+</doc>
