@@ -9,7 +9,7 @@
         Height="650"
         MinWidth="800"
         MinHeight="500"
-        Background="#F5F5F5"
+        Background="#F5F5F5" WindowStartupLocation="CenterScreen" WindowState="Maximized"
         FontFamily="Segoe UI"
         FontSize="16"
         mc:Ignorable="d">
@@ -92,9 +92,15 @@
         <Trigger Property="IsMouseOver"
                  Value="True">
           <Setter Property="Background"
-                  Value="#F0F0F0" />
+                  Value="LightBlue" />
           <Setter Property="BorderBrush"
                   Value="#999999" />
+        </Trigger>
+        <Trigger Property="IsEnabled"
+                 Value="False">
+          <Setter Property="Background"
+                  Value="LightGray" />
+          
         </Trigger>
       </Style.Triggers>
     </Style>
@@ -158,11 +164,10 @@
                  Width="40"
                  Height="40"
                  Margin="0,0,16,0">
-          <Canvas Width="24"
-                  Height="24">
-            <Path Data="M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2M12,4A8,8 0 0,1 20,12A8,8 0 0,1 12,20A8,8 0 0,1 4,12A8,8 0 0,1 12,4M11,6V12.414L14.293,15.707L15.707,14.293L13,11.586V6H11Z"
-                  Fill="#0078D4" />
-          </Canvas>
+          <Image 
+                  Source="Images/logo.png">
+            
+          </Image>
         </Viewbox>
         <StackPanel Grid.Column="1"
                     VerticalAlignment="Center">
@@ -239,7 +244,7 @@
           </TextBlock>
           <TextBox x:Name="txtOutputFile"
                    Grid.Row="1"
-                   Grid.Column="1"
+                   Grid.Column="1" TextChanged="TxtOutputFile_OnTextChanged"
                    Margin="0,0,12,12"
                    Style="{StaticResource ModernTextBox}" />
           <Button x:Name="btnBrowseOutput"
@@ -308,6 +313,12 @@
                   Margin="0,8,0,8"
                   HorizontalAlignment="Right"
                   Orientation="Horizontal">
+        <Button x:Name="btnOpenOutputDir"
+                Width="150"
+                Margin="0,0,12,0"
+                Click="btnOpenOutputDir_Click"
+                Content="Open Output Dir"
+                Style="{StaticResource SecondaryButton}" />
         <Button x:Name="btnClearFiles"
                 Width="110"
                 Margin="0,0,12,0"

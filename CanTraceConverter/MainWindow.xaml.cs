@@ -1,8 +1,11 @@
 ﻿using CanTraceConverter.ViewModels;
 using System;
+using System.Diagnostics;
+using System.IO;
 using System.Threading.Tasks;
 using System.Windows;
-using System.IO;
+using System.Windows.Controls;
+using Path = System.IO.Path;
 
 namespace CanTraceConverter
 {
@@ -31,6 +34,18 @@ namespace CanTraceConverter
                 MessageBox.Show("Please select an input file.", "Missing input",
                     MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
+            }
+            if (!File.Exists(txtInputFile.Text))
+            {
+                MessageBox.Show("Input file does not exists.", "Invalid input",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            if (!string.IsNullOrWhiteSpace(txtOutputFile.Text) && !Directory.Exists(txtOutputFile.Text))
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(txtOutputFile.Text));
+                TxtOutputFile_OnTextChanged(null,null);
             }
 
             _isConverting = true;
@@ -153,6 +168,48 @@ namespace CanTraceConverter
             txtInputFile.Clear();
             txtOutputFile.Clear();
             txtStatus.Text = "File paths cleared.";
+        }
+
+        private void btnOpenOutputDir_Click(object sender, RoutedEventArgs e)
+        {
+            if (!IsValidPath(txtOutputFile.Text))
+            {
+                MessageBox.Show("Invalid output directory path!", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                return;
+            }
+            var dir = Path.GetDirectoryName(txtOutputFile.Text);
+            if (Directory.Exists(dir))
+            {
+                ProcessStartInfo startInfo = new ProcessStartInfo
+                {
+                    Arguments = dir,
+                    FileName = "explorer.exe"
+                };
+                Process.Start(startInfo);
+            }
+            else
+            {
+                MessageBox.Show("Output directory does not exists!", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private void TxtOutputFile_OnTextChanged(object sender, TextChangedEventArgs e)
+        {
+            btnOpenOutputDir.IsEnabled = !string.IsNullOrWhiteSpace(txtOutputFile.Text) && IsValidPath(txtOutputFile.Text) &&
+                                        Directory.Exists(Path.GetDirectoryName(txtOutputFile.Text));
+        }
+
+        private bool IsValidPath(string path)
+        {
+            try
+            {
+                string directory = Path.GetDirectoryName(path);
+                return !string.IsNullOrWhiteSpace(directory);
+            }
+            catch
+            {
+                return false;
+            }
         }
     }
 }

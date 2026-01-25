@@ -90,13 +90,14 @@ namespace CanTraceConverter.ViewModels
                         var msg = reader.ReadUcanMessage();
                         count++;
 
+                        var displayMsg = msg;
                         if (useDifferentialTime && count > 1)
                         {
-                            msg.m_dwTime -= prevMsg.m_dwTime;
+                            displayMsg.m_dwTime -= prevMsg.m_dwTime;
                         }
-                        prevMsg = msg;
+                        prevMsg = msg; // Store original message for next calculation
 
-                        string line = string.Format(formatter, "{0}", msg);
+                        string line = string.Format(formatter, "{0}", displayMsg);
                         sb.AppendLine(line);
 
                         // Update progress every 500 messages
