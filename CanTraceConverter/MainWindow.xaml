@@ -302,7 +302,7 @@
                        HorizontalScrollBarVisibility="Disabled"
                        IsReadOnly="True"
                        TextWrapping="NoWrap"
-                       VerticalScrollBarVisibility="Visible" />
+                       VerticalScrollBarVisibility="Auto" />
             <!--</ScrollViewer>-->
           </Border>
         </Grid>
