@@ -161,6 +161,7 @@ namespace CanTraceConverter
         {
             txtOutput.Clear();
             txtStatus.Text = "Output cleared.";
+            Title = $"USB-CAN Trace Converter";
         }
 
         private void btnClearFiles_Click(object sender, RoutedEventArgs e)
