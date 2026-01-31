@@ -309,7 +309,8 @@
       </Border>
 
       <!--  Action Buttons  -->
-      <StackPanel Grid.Row="2" Height="30"
+      <StackPanel Grid.Row="2"
+                  Height="30"
                   Margin="0,8,0,8"
                   HorizontalAlignment="Right"
                   Orientation="Horizontal">
@@ -331,6 +332,12 @@
                 Click="btnClear_Click"
                 Content="Clear Output"
                 Style="{StaticResource SecondaryButton}" />
+        <Button x:Name="btnAnalyze"
+                Width="120"
+                Margin="0,0,12,0"
+                Click="btnAnalyze_Click"
+                Content="Analyze"
+                Style="{StaticResource ModernButton}" />
         <Button x:Name="btnConvert"
                 Width="120"
                 Click="btnConvert_Click"

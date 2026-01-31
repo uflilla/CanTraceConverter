@@ -212,5 +212,23 @@ namespace CanTraceConverter
                 return false;
             }
         }
+
+        private void btnAnalyze_Click(object sender, RoutedEventArgs e)
+        {
+            if (string.IsNullOrWhiteSpace(txtOutput.Text))
+            {
+                MessageBox.Show("No converted data available to analyze. Please convert a trace file first.",
+                    "No Data", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            // Extract header and messages from the converted output
+            string convertedData = txtOutput.Text;
+
+            // Open the analysis window with the converted data
+            var analysisWindow = new AnalysisWindow(convertedData);
+            analysisWindow.Owner = this;
+            analysisWindow.ShowDialog();
+        }
     }
 }
