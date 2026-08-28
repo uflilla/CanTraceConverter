@@ -1,10 +1,14 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Collections.Specialized;
 using System.Diagnostics;
-using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Input;
+using System.Windows.Media;
 using System.Windows.Threading;
 using CanTraceConverter.Models;
 using CanTraceConverter.Services;
@@ -17,11 +21,11 @@ namespace CanTraceConverter
         private readonly SessionConfig _config;
         private readonly CanBusService _bus = new CanBusService();
         private readonly CanMessageRepository _repository = new CanMessageRepository();
-        private readonly PeriodicTransmitter _periodicTx = new PeriodicTransmitter();
+        private readonly TransmitListManager _transmitManager = new TransmitListManager();
         private readonly Dictionary<uint, LiveCanRow> _liveRows = new Dictionary<uint, LiveCanRow>();
         private readonly ObservableCollection<LiveCanRow> _liveCollection = new ObservableCollection<LiveCanRow>();
+        private readonly ObservableCollection<CanTransmitRow> _transmitRows = new ObservableCollection<CanTransmitRow>();
         private readonly DispatcherTimer _uiTimer;
-        private bool _periodicRunning;
         private long _totalMessages;
         private bool _dirty;
         private bool _isClosing;
@@ -33,7 +37,9 @@ namespace CanTraceConverter
             InitializeComponent();
 
             dgLive.ItemsSource = _liveCollection;
-            cmbSendDlc.SelectionChanged += (_, __) => hexSendData.MaxBytes = GetSelectedDlc();
+            dgTransmit.ItemsSource = _transmitRows;
+            _transmitRows.CollectionChanged += TransmitRows_CollectionChanged;
+            _transmitManager.AttachBus(_bus);
             UpdateSendPanelState();
 
             Title = $"CAN Monitor — {config.Title}";
@@ -51,6 +57,53 @@ namespace CanTraceConverter
             _bus.Disconnected += () => RunOnUiThread(OnDisconnected);
 
             Loaded += (_, __) => StartSession();
+        }
+
+        private void TransmitRows_CollectionChanged(object sender, NotifyCollectionChangedEventArgs e)
+        {
+            if (e.NewItems == null)
+                return;
+
+            foreach (CanTransmitRow row in e.NewItems)
+                row.PropertyChanged += TransmitRow_PropertyChanged;
+        }
+
+        private void TransmitRow_PropertyChanged(object sender, System.ComponentModel.PropertyChangedEventArgs e)
+        {
+            if (sender is CanTransmitRow row &&
+                e.PropertyName == nameof(CanTransmitRow.CycleEnabled) &&
+                !row.CycleEnabled &&
+                row.IsCyclicRunning)
+            {
+                _transmitManager.StopCyclic(row);
+            }
+        }
+
+        private void DgTransmit_PreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            if (FindVisualParent<Button>(e.OriginalSource as DependencyObject) != null)
+                return;
+
+            var cell = FindVisualParent<DataGridCell>(e.OriginalSource as DependencyObject);
+            if (cell == null || cell.IsReadOnly || cell.Column is DataGridTemplateColumn)
+                return;
+
+            if (!cell.IsFocused)
+                cell.Focus();
+
+            if (!cell.IsEditing)
+                dgTransmit.BeginEdit(e);
+        }
+
+        private static T FindVisualParent<T>(DependencyObject child) where T : DependencyObject
+        {
+            while (child != null)
+            {
+                if (child is T match)
+                    return match;
+                child = VisualTreeHelper.GetParent(child);
+            }
+            return null;
         }
 
         private void UpdateSendPanelState()
@@ -102,6 +155,7 @@ namespace CanTraceConverter
             }
             catch (Exception ex)
             {
+                AppLog.Error(ex, "Monitor session start failed.");
                 ShowConnectionFailed(ex.Message);
             }
         }
@@ -109,11 +163,13 @@ namespace CanTraceConverter
         private void ShowConnectionFailed(string message)
         {
             _loggingEnabled = false;
+            AppLog.Warn("Monitor connection failed: {0}", message);
             txtConnectionStatus.Text = "Not connected";
             txtConnectionStatus.Foreground = System.Windows.Media.Brushes.Red;
             txtStatus.Text = message;
             btnReconnect.Visibility = Visibility.Visible;
             UpdateSendPanelState();
+            StopAllCyclicInternal();
 
             MessageBox.Show(
                 message + Environment.NewLine + Environment.NewLine +
@@ -180,97 +236,175 @@ namespace CanTraceConverter
         private void OnDisconnected()
         {
             _loggingEnabled = false;
+            AppLog.Warn("CAN monitor disconnected from hardware.");
             txtConnectionStatus.Text = "Disconnected";
             txtConnectionStatus.Foreground = System.Windows.Media.Brushes.OrangeRed;
             btnReconnect.Visibility = Visibility.Visible;
             UpdateSendPanelState();
-            if (_periodicRunning)
-                StopPeriodic();
+            StopAllCyclicInternal();
         }
 
-        private void BtnSendOnce_Click(object sender, RoutedEventArgs e)
+        private void StopAllCyclicInternal()
         {
-            if (!_bus.IsConnected)
-            {
-                MessageBox.Show("Not connected to CAN hardware.", "TX Error",
-                    MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
-            }
-
-            if (!TryParseSendInput(out uint id, out byte dlc, out byte[] data, out bool ext))
-                return;
-
-            if (!_bus.SendOnce(id, dlc, data, ext, false))
-                MessageBox.Show("Failed to send message.", "TX Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+            _transmitManager.StopAll();
+            foreach (var row in _transmitRows)
+                row.IsCyclicRunning = false;
         }
 
-        private void BtnPeriodic_Click(object sender, RoutedEventArgs e)
+        private void ShowTransmitError(string error)
         {
-            if (_periodicRunning)
+            if (!string.IsNullOrEmpty(error))
             {
-                StopPeriodic();
-                return;
+                AppLog.Warn("Transmit error: {0}", error);
+                MessageBox.Show(error, "Transmit", MessageBoxButton.OK, MessageBoxImage.Warning);
             }
-
-            if (!_bus.IsConnected)
-            {
-                MessageBox.Show("Not connected to CAN hardware.", "TX Error",
-                    MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
-            }
-
-            if (!TryParseSendInput(out uint id, out byte dlc, out byte[] data, out bool ext))
-                return;
-
-            if (!int.TryParse(txtInterval.Text, out int interval) || interval < 1)
-            {
-                MessageBox.Show("Interval must be at least 1 ms.", "Invalid interval",
-                    MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
-            }
-
-            _periodicTx.Start(_bus, interval, id, dlc, data, ext);
-            _periodicRunning = true;
-            btnPeriodic.Content = "Stop Periodic";
         }
 
-        private void StopPeriodic()
+        private CanTransmitRow GetRowFromSender(object sender)
         {
-            _periodicTx.Stop();
-            _bus.StopPeriodicFirmware();
-            _periodicRunning = false;
-            btnPeriodic.Content = "Periodic TX";
+            if (sender is Button button && button.DataContext is CanTransmitRow row)
+                return row;
+            return null;
         }
 
-        private byte GetSelectedDlc()
+        private void BtnRowSend_Click(object sender, RoutedEventArgs e)
         {
-            if (cmbSendDlc.SelectedItem is System.Windows.Controls.ComboBoxItem item &&
-                byte.TryParse(item.Tag?.ToString(), out byte dlc))
-                return dlc;
-            return 8;
+            var row = GetRowFromSender(sender);
+            if (row == null)
+                return;
+
+            CommitTransmitGridEdits();
+
+            if (row.CycleEnabled)
+            {
+                if (row.IsCyclicRunning)
+                {
+                    _transmitManager.StopCyclic(row);
+                    return;
+                }
+
+                if (!_transmitManager.TryStartCyclic(row, out string cyclicError))
+                    ShowTransmitError(cyclicError);
+                return;
+            }
+
+            if (!_transmitManager.TrySendOnce(row, out string error))
+                ShowTransmitError(error);
         }
 
-        private bool TryParseSendInput(out uint id, out byte dlc, out byte[] data, out bool extended)
+        private void BtnTxAdd_Click(object sender, RoutedEventArgs e)
         {
-            id = 0;
-            dlc = GetSelectedDlc();
-            data = new byte[8];
-            extended = chkExtended.IsChecked == true;
+            _transmitRows.Add(new CanTransmitRow());
+        }
 
-            string idText = txtSendId.Text?.Trim().Replace("h", "").Replace("0x", "");
-            if (!uint.TryParse(idText, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out id))
+        private void BtnTxRemove_Click(object sender, RoutedEventArgs e)
+        {
+            if (dgTransmit.SelectedItem is CanTransmitRow row)
             {
-                MessageBox.Show("Invalid CAN ID.", "Input error", MessageBoxButton.OK, MessageBoxImage.Warning);
-                return false;
+                row.PropertyChanged -= TransmitRow_PropertyChanged;
+                _transmitManager.StopCyclic(row);
+                _transmitRows.Remove(row);
+            }
+        }
+
+        private void BtnTxDuplicate_Click(object sender, RoutedEventArgs e)
+        {
+            if (dgTransmit.SelectedItem is CanTransmitRow selected)
+                _transmitRows.Add(selected.Clone());
+            else if (_transmitRows.Count > 0)
+                _transmitRows.Add(_transmitRows[_transmitRows.Count - 1].Clone());
+        }
+
+        private void BtnTxSendAllOnce_Click(object sender, RoutedEventArgs e)
+        {
+            CommitTransmitGridEdits();
+
+            var onceRows = _transmitRows.Where(r => !r.CycleEnabled).ToList();
+            if (onceRows.Count == 0)
+            {
+                MessageBox.Show("No rows with Cycle unchecked. Uncheck Cycle on rows you want to send once, or use Start All Cyclic.",
+                    "Send All Once", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
             }
 
-            if (!hexSendData.TryGetBytes(dlc, out data, out string dataError))
+            int sent = 0;
+            var errors = new List<string>();
+            foreach (var row in onceRows)
             {
-                MessageBox.Show(dataError, "Data error", MessageBoxButton.OK, MessageBoxImage.Warning);
-                return false;
+                if (_transmitManager.TrySendOnce(row, out string error))
+                    sent++;
+                else if (!string.IsNullOrEmpty(error))
+                    errors.Add($"ID {row.CanIdHex}: {error}");
             }
 
-            return true;
+            if (errors.Count > 0)
+            {
+                MessageBox.Show(
+                    $"Sent {sent} of {onceRows.Count} message(s)." + Environment.NewLine + Environment.NewLine +
+                    string.Join(Environment.NewLine, errors.Take(5)) +
+                    (errors.Count > 5 ? Environment.NewLine + "..." : string.Empty),
+                    "Send All Once",
+                    MessageBoxButton.OK,
+                    errors.Count == onceRows.Count ? MessageBoxImage.Warning : MessageBoxImage.Information);
+            }
+            else if (sent > 0)
+            {
+                txtStatus.Text = $"Sent {sent} message(s) once.";
+            }
+        }
+
+        private void BtnTxStartAllCyclic_Click(object sender, RoutedEventArgs e)
+        {
+            CommitTransmitGridEdits();
+
+            int started = 0;
+            var errors = new List<string>();
+            foreach (var row in _transmitRows.Where(r => r.CycleEnabled))
+            {
+                if (row.IsCyclicRunning)
+                {
+                    started++;
+                    continue;
+                }
+
+                if (_transmitManager.TryStartCyclic(row, out string error))
+                    started++;
+                else if (!string.IsNullOrEmpty(error))
+                    errors.Add($"ID {row.CanIdHex}: {error}");
+            }
+
+            if (_transmitRows.All(r => !r.CycleEnabled))
+            {
+                MessageBox.Show("No rows have Cycle checked. Enable Cycle on rows to include them in Start All Cyclic.",
+                    "Start All Cyclic", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            if (errors.Count > 0)
+            {
+                MessageBox.Show(
+                    $"Started {started} cyclic transmitter(s)." + Environment.NewLine + Environment.NewLine +
+                    string.Join(Environment.NewLine, errors.Take(5)),
+                    "Start All Cyclic",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+            }
+            else
+            {
+                txtStatus.Text = $"Cyclic TX running on {started} message(s).";
+            }
+        }
+
+        private void BtnTxStopAllCyclic_Click(object sender, RoutedEventArgs e)
+        {
+            StopAllCyclicInternal();
+            txtStatus.Text = "All cyclic transmitters stopped.";
+        }
+
+        private void CommitTransmitGridEdits()
+        {
+            dgTransmit.CommitEdit(DataGridEditingUnit.Cell, true);
+            dgTransmit.CommitEdit(DataGridEditingUnit.Row, true);
         }
 
         private void BtnAnalyze_Click(object sender, RoutedEventArgs e)
@@ -362,6 +496,7 @@ namespace CanTraceConverter
         {
             try
             {
+                StopAllCyclicInternal();
                 _bus.Disconnect();
                 StartSession();
             }
@@ -376,10 +511,10 @@ namespace CanTraceConverter
             _isClosing = true;
             _bus.MessageReceived -= OnMessageReceived;
             _uiTimer.Stop();
-            StopPeriodic();
+            StopAllCyclicInternal();
             try { _bus.Dispose(); } catch { /* ignore */ }
             try { _repository.Dispose(); } catch { /* ignore */ }
-            try { _periodicTx.Dispose(); } catch { /* ignore */ }
+            try { _transmitManager.Dispose(); } catch { /* ignore */ }
         }
     }
 }

@@ -39,6 +39,9 @@
     <ApplicationIcon>favicon.ico</ApplicationIcon>
   </PropertyGroup>
   <ItemGroup>
+    <Reference Include="NLog, Version=5.0.0.0, Culture=neutral, PublicKeyToken=5120e14c03d0593c, processorArchitecture=MSIL">
+      <HintPath>..\packages\NLog.5.3.4\extracted\lib\net46\NLog.dll</HintPath>
+    </Reference>
     <Reference Include="System" />
     <Reference Include="System.Data" />
     <Reference Include="System.Data.SQLite, Version=1.0.118.0, Culture=neutral, PublicKeyToken=db937bc2d44ff139, processorArchitecture=MSIL">
@@ -99,9 +102,12 @@
     <Compile Include="Helpers\UcanMsgFormatProvider.cs" />
     <Compile Include="Helpers\UcanTraceBinaryReader.cs" />
     <Compile Include="Helpers\VersionFormatProvider.cs" />
+    <Compile Include="Models\CanTransmitRow.cs" />
     <Compile Include="Models\CanMessage.cs" />
     <Compile Include="Models\LiveCanRow.cs" />
     <Compile Include="Models\SessionConfig.cs" />
+    <Compile Include="Services\AppLog.cs" />
+    <Compile Include="Services\TransmitListManager.cs" />
     <Compile Include="Services\ThemeManager.cs" />
     <Compile Include="Services\CanBusService.cs" />
     <Compile Include="Services\CanHardwareAvailability.cs" />
@@ -187,6 +193,9 @@
   </ItemGroup>
   <ItemGroup>
     <None Include="App.config" />
+    <None Include="NLog.config">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <Content Include="Dlls\UcanDotNET.dll">

@@ -46,6 +46,7 @@ namespace CanTraceConverter.Services
                 if (!CanHardwareAvailability.TryProbeDriver(out string driverError))
                 {
                     LastError = driverError;
+                    AppLog.Warn("CAN driver probe failed: {0}", driverError);
                     RaiseStatus(driverError);
                     return false;
                 }
@@ -57,6 +58,7 @@ namespace CanTraceConverter.Services
                 if (result != (int)eUcanReturn.USBCAN_SUCCESSFUL)
                 {
                     LastError = DescribeError("InitHardware", result);
+                    AppLog.Warn("InitHardware failed: {0}", LastError);
                     RaiseStatus(LastError);
                     UnhookEvents();
                     CleanupServer();
@@ -87,6 +89,7 @@ namespace CanTraceConverter.Services
                 if (result != (int)eUcanReturn.USBCAN_SUCCESSFUL)
                 {
                     LastError = DescribeError("InitCan", result);
+                    AppLog.Warn("InitCan failed: {0}", LastError);
                     RaiseStatus(LastError);
                     SafeShutdown(config.Channel);
                     UnhookEvents();
@@ -102,11 +105,14 @@ namespace CanTraceConverter.Services
                 _rxThread.Start();
 
                 RaiseStatus($"Connected — Device {config.DeviceNumber}, CH{config.Channel}, {config.BaudRateKbps} kBit/s");
+                AppLog.Info("Connected to USB-CAN device {0}, channel {1}, {2} kBit/s, listen-only={3}.",
+                    config.DeviceNumber, config.Channel, config.BaudRateKbps, config.ListenOnly);
                 return true;
             }
             catch (Exception ex)
             {
                 LastError = $"Connection failed: {ex.Message}";
+                AppLog.Error(ex, "CAN connection failed.");
                 RaiseStatus(LastError);
                 UnhookEvents();
                 CleanupServer();
@@ -198,6 +204,7 @@ namespace CanTraceConverter.Services
             _stopRx = true;
             _msgSignal.Set();
             RaiseStatus(message);
+            AppLog.Warn("CAN bus disconnected: {0}", message);
             try { Disconnected?.Invoke(); } catch { /* ignore subscriber errors */ }
         }
 
@@ -314,6 +321,7 @@ namespace CanTraceConverter.Services
             UnhookEvents();
             CleanupServer();
             RaiseStatus("Disconnected");
+            AppLog.Info("CAN bus service disconnected.");
         }
 
         private void SafeShutdown(byte channel)
