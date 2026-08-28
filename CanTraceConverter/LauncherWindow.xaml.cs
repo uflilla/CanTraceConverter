@@ -58,23 +58,12 @@ namespace CanTraceConverter
             if (dlg.ShowDialog() != true)
                 return;
 
-            try
-            {
-                var kind = dlg.FileName.EndsWith(".db", StringComparison.OrdinalIgnoreCase)
-                    ? AnalysisSource.Database
-                    : AnalysisSource.TextFile;
+            var kind = dlg.FileName.EndsWith(".db", StringComparison.OrdinalIgnoreCase)
+                ? AnalysisSource.Database
+                : AnalysisSource.TextFile;
 
-                AppLog.Info("Opening analysis for '{0}' ({1}).", dlg.FileName, kind);
-                var analysis = new AnalysisWindow(dlg.FileName, kind);
-                analysis.Owner = this;
-                analysis.ShowDialog();
-            }
-            catch (Exception ex)
-            {
-                AppLog.Error(ex, "Could not open database for analysis.");
-                MessageBox.Show($"Could not open database:\n{ex.Message}", "Error",
-                    MessageBoxButton.OK, MessageBoxImage.Error);
-            }
+            AppLog.Info("Opening analysis for '{0}' ({1}).", dlg.FileName, kind);
+            AnalysisWindow.Open(this, dlg.FileName, kind);
         }
     }
 }

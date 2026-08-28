@@ -419,14 +419,15 @@ namespace CanTraceConverter
             try
             {
                 _repository.Flush();
-                var win = new AnalysisWindow(_repository.DatabasePath, AnalysisSource.Database) { Owner = this };
-                win.ShowDialog();
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Could not open analysis:\n{ex.Message}", "Error",
+                MessageBox.Show($"Could not flush session data:\n{ex.Message}", "Error",
                     MessageBoxButton.OK, MessageBoxImage.Error);
+                return;
             }
+
+            AnalysisWindow.Open(this, _repository.DatabasePath, AnalysisSource.Database);
         }
 
         private void BtnExport_Click(object sender, RoutedEventArgs e)

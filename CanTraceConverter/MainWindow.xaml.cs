@@ -222,13 +222,7 @@ namespace CanTraceConverter
                 return;
             }
 
-            // Extract header and messages from the converted output
-            string convertedData = txtOutput.Text;
-
-            // Open the analysis window with the converted data
-            var analysisWindow = new AnalysisWindow(convertedData);
-            analysisWindow.Owner = this;
-            analysisWindow.ShowDialog();
+            AnalysisWindow.Open(this, txtOutput.Text, AnalysisSource.ConvertedText);
         }
     }
 }

@@ -33,14 +33,46 @@ namespace CanTraceConverter
 
         public AnalysisWindow(string source, AnalysisSource kind = AnalysisSource.ConvertedText)
         {
-            InitializeComponent();
+            // XAML CheckBox/ComboBox defaults fire Checked/SelectionChanged during
+            // InitializeComponent. Build the timer and suppress those events first.
+            _sourceInput = source;
+            _sourceKind = kind;
+            _isLoading = true;
+            _suppressFilterEvents = true;
 
             _filterTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(350) };
             _filterTimer.Tick += FilterTimer_Tick;
 
-            _sourceInput = source;
-            _sourceKind = kind;
+            InitializeComponent();
+            Closed += AnalysisWindow_Closed;
             LoadData(source, kind);
+        }
+
+        /// <summary>
+        /// Opens the analysis window from any caller (converter, launcher, monitor).
+        /// Construction-time XAML events are handled inside the constructor.
+        /// </summary>
+        public static void Open(Window owner, string source, AnalysisSource kind = AnalysisSource.ConvertedText)
+        {
+            try
+            {
+                var window = new AnalysisWindow(source, kind);
+                if (owner != null)
+                    window.Owner = owner;
+                window.ShowDialog();
+            }
+            catch (Exception ex)
+            {
+                AppLog.Error(ex, "Could not open analysis window.");
+                MessageBox.Show($"Could not open analysis:\n{ex.Message}", "Error",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private void AnalysisWindow_Closed(object sender, EventArgs e)
+        {
+            _filterTimer.Stop();
+            _filterTimer.Tick -= FilterTimer_Tick;
         }
 
         private void LoadData(string source, AnalysisSource kind)
@@ -76,7 +108,8 @@ namespace CanTraceConverter
                 AppLog.Error(ex, "Failed to load analysis data.");
                 MessageBox.Show($"Error loading analysis data:\n{ex.Message}", "Load Error",
                     MessageBoxButton.OK, MessageBoxImage.Error);
-                txtStatus.Text = "Failed to load data";
+                if (txtStatus != null)
+                    txtStatus.Text = "Failed to load data";
             }
             finally
             {
@@ -174,16 +207,16 @@ namespace CanTraceConverter
 
         private void OnFilterChanged(object sender, EventArgs e)
         {
-            if (_suppressFilterEvents || _isLoading)
+            if (_suppressFilterEvents || _isLoading || _filterTimer == null)
                 return;
 
             if (chkAutoApply?.IsChecked == true)
             {
-                _filterTimer.Stop();
-                _filterTimer.Start();
-                txtStatus.Text = "Updating filters...";
+                RestartFilterTimer();
+                if (txtStatus != null)
+                    txtStatus.Text = "Updating filters...";
             }
-            else
+            else if (txtStatus != null)
             {
                 txtStatus.Text = "Filters modified — click Apply Filters";
             }
@@ -193,7 +226,14 @@ namespace CanTraceConverter
         {
             _filterTimer.Stop();
             ApplyFiltersInternal();
-            txtStatus.Text = $"{_filteredMessages.Count:N0} messages match filters";
+            if (txtStatus != null)
+                txtStatus.Text = $"{_filteredMessages.Count:N0} messages match filters";
+        }
+
+        private void RestartFilterTimer()
+        {
+            _filterTimer.Stop();
+            _filterTimer.Start();
         }
 
         private void btnApplyFilters_Click(object sender, RoutedEventArgs e)
@@ -251,30 +291,28 @@ namespace CanTraceConverter
 
         private void cmbViewMode_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (_isLoading || cmbViewMode?.SelectedItem == null)
+            if (_suppressFilterEvents || _isLoading || cmbViewMode?.SelectedItem == null)
                 return;
 
             _currentViewMode = GetComboText(cmbViewMode, "All Messages");
-            panelTimelineInterval.Visibility = _currentViewMode == "Message Timeline"
-                ? Visibility.Visible
-                : Visibility.Collapsed;
+            if (panelTimelineInterval != null)
+            {
+                panelTimelineInterval.Visibility = _currentViewMode == "Message Timeline"
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
+            }
             RefreshCurrentView();
         }
 
         private void txtTimelineInterval_TextChanged(object sender, TextChangedEventArgs e)
         {
-            if (_isLoading || _currentViewMode != "Message Timeline")
+            if (_suppressFilterEvents || _isLoading || _filterTimer == null || _currentViewMode != "Message Timeline")
                 return;
 
             if (chkAutoApply?.IsChecked == true)
-            {
-                _filterTimer.Stop();
-                _filterTimer.Start();
-            }
+                RestartFilterTimer();
             else
-            {
                 RefreshCurrentView();
-            }
         }
 
         private void RefreshCurrentView()
