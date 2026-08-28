@@ -1,16 +1,23 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.ComponentModel;
 using System.IO;
 using System.Linq;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
+using CanTraceConverter.Models;
+using CanTraceConverter.Services;
 
 namespace CanTraceConverter
 {
+    public enum AnalysisSource
+    {
+        ConvertedText,
+        Database
+    }
+
     public partial class AnalysisWindow : Window
     {
         private ObservableCollection<CanMessage> _allMessages;
@@ -18,17 +25,62 @@ namespace CanTraceConverter
         private string _headerText;
         private Dictionary<string, int> _canIdFrequency;
         private Dictionary<string, List<CanMessage>> _messagesByCanId;
+        private CanMessageRepository _repository;
 
-        public AnalysisWindow(string convertedData)
+        public AnalysisWindow(string source, AnalysisSource kind = AnalysisSource.ConvertedText)
         {
             InitializeComponent();
+            InitCollections();
+
+            if (kind == AnalysisSource.Database)
+                LoadFromDatabase(source);
+            else
+                ParseConvertedData(source);
+
+            InitializeAnalysis();
+        }
+
+        private void InitCollections()
+        {
             _allMessages = new ObservableCollection<CanMessage>();
             _filteredMessages = new ObservableCollection<CanMessage>();
             _canIdFrequency = new Dictionary<string, int>();
             _messagesByCanId = new Dictionary<string, List<CanMessage>>();
+        }
 
-            ParseConvertedData(convertedData);
-            InitializeAnalysis();
+        private void LoadFromDatabase(string databasePath)
+        {
+            try
+            {
+                _repository = CanMessageRepository.OpenExisting(databasePath);
+                _headerText = _repository.HeaderText;
+                txtFileInfo.Text = _headerText;
+
+                var messages = _repository.LoadMessages();
+                foreach (var msg in messages)
+                    AddMessage(msg);
+
+                txtStatus.Text = $"Loaded {messages.Count:N0} messages from database";
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error loading database: {ex.Message}", "Load Error",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        private void AddMessage(CanMessage message)
+        {
+            _allMessages.Add(message);
+
+            if (_canIdFrequency.ContainsKey(message.CanId))
+                _canIdFrequency[message.CanId]++;
+            else
+                _canIdFrequency[message.CanId] = 1;
+
+            if (!_messagesByCanId.ContainsKey(message.CanId))
+                _messagesByCanId[message.CanId] = new List<CanMessage>();
+            _messagesByCanId[message.CanId].Add(message);
         }
 
         private void ParseConvertedData(string data)
@@ -38,7 +90,6 @@ namespace CanTraceConverter
                 var lines = data.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
                 var headerLines = new List<string>();
                 bool headerEnded = false;
-                int messageCount = 0;
 
                 foreach (var line in lines)
                 {
@@ -65,26 +116,12 @@ namespace CanTraceConverter
                     // Parse CAN message line
                     var message = ParseCanMessage(line);
                     if (message != null)
-                    {
-                        _allMessages.Add(message);
-                        messageCount++;
-
-                        // Build frequency map
-                        if (_canIdFrequency.ContainsKey(message.CanId))
-                            _canIdFrequency[message.CanId]++;
-                        else
-                            _canIdFrequency[message.CanId] = 1;
-
-                        // Group by CAN ID
-                        if (!_messagesByCanId.ContainsKey(message.CanId))
-                            _messagesByCanId[message.CanId] = new List<CanMessage>();
-                        _messagesByCanId[message.CanId].Add(message);
-                    }
+                        AddMessage(message);
                 }
 
                 _headerText = string.Join("\n", headerLines);
                 txtFileInfo.Text = _headerText;
-                txtStatus.Text = $"Loaded {messageCount:N0} messages successfully";
+                txtStatus.Text = $"Loaded {_allMessages.Count:N0} messages successfully";
             }
             catch (Exception ex)
             {
@@ -126,8 +163,9 @@ namespace CanTraceConverter
                     message.DataBytes = ParseDataBytes(message.Data);
                 }
 
-                // Parse time as long for filtering
-                if (long.TryParse(parts[1], out long timeValue))
+                // Parse time for filtering
+                if (double.TryParse(parts[1], System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out double timeValue))
                 {
                     message.TimeValue = timeValue;
                 }
@@ -188,7 +226,7 @@ namespace CanTraceConverter
                 var minTime = _filteredMessages.Min(m => m.TimeValue);
                 var maxTime = _filteredMessages.Max(m => m.TimeValue);
                 var duration = maxTime - minTime;
-                stats.AppendLine($"Duration: {duration:N0} ms");
+                stats.AppendLine($"Duration: {duration:N1} ms");
 
                 if (duration > 0)
                 {
@@ -252,7 +290,8 @@ namespace CanTraceConverter
                 // Time range filter
                 if (!string.IsNullOrWhiteSpace(txtTimeFrom.Text))
                 {
-                    if (long.TryParse(txtTimeFrom.Text, out long timeFrom))
+                    if (double.TryParse(txtTimeFrom.Text, System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture, out double timeFrom))
                     {
                         filtered = filtered.Where(m => m.TimeValue >= timeFrom);
                     }
@@ -260,7 +299,8 @@ namespace CanTraceConverter
 
                 if (!string.IsNullOrWhiteSpace(txtTimeTo.Text))
                 {
-                    if (long.TryParse(txtTimeTo.Text, out long timeTo))
+                    if (double.TryParse(txtTimeTo.Text, System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture, out double timeTo))
                     {
                         filtered = filtered.Where(m => m.TimeValue <= timeTo);
                     }
@@ -496,9 +536,9 @@ namespace CanTraceConverter
             {
                 var minTime = _filteredMessages.Min(m => m.TimeValue);
                 var maxTime = _filteredMessages.Max(m => m.TimeValue);
-                var interval = 100; // 100ms buckets
+                var interval = 100.0;
 
-                for (long time = minTime; time <= maxTime; time += interval)
+                for (double time = minTime; time <= maxTime; time += interval)
                 {
                     var messagesInInterval = _filteredMessages.Where(m =>
                         m.TimeValue >= time && m.TimeValue < time + interval).ToList();
@@ -569,51 +609,8 @@ namespace CanTraceConverter
 
         private void btnClose_Click(object sender, RoutedEventArgs e)
         {
+            _repository?.Dispose();
             Close();
         }
-    }
-
-    // Data models
-    public class CanMessage
-    {
-        public string Direction { get; set; }
-        public string Time { get; set; }
-        public long TimeValue { get; set; }
-        public string CanId { get; set; }
-        public string Dlc { get; set; }
-        public string Data { get; set; }
-        public byte[] DataBytes { get; set; }
-        public string RawLine { get; set; }
-    }
-
-    public class CanMessageSummary
-    {
-        public string CanId { get; set; }
-        public int Count { get; set; }
-        public string Direction { get; set; }
-        public string Dlc { get; set; }
-        public string FirstTime { get; set; }
-        public string LastTime { get; set; }
-    }
-
-    public class TimelineSummary
-    {
-        public string TimeRange { get; set; }
-        public int MessageCount { get; set; }
-        public int UniqueIds { get; set; }
-        public int RxCount { get; set; }
-        public int TxCount { get; set; }
-    }
-
-    public class FrequencyAnalysis
-    {
-        public string CanId { get; set; }
-        public int TotalCount { get; set; }
-        public double Percentage { get; set; }
-        public double FrequencyHz { get; set; }
-        public string Direction { get; set; }
-
-        public string PercentageDisplay => $"{Percentage:F2}%";
-        public string FrequencyDisplay => $"{FrequencyHz:F2}";
     }
 }

@@ -3,6 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:local="clr-namespace:CanTraceConverter"
+        xmlns:controls="clr-namespace:CanTraceConverter.Controls"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         Title="USB-CAN Trace Converter"
         Width="950"
@@ -13,135 +14,6 @@
         FontFamily="Segoe UI"
         FontSize="16"
         mc:Ignorable="d">
-  <Window.Resources>
-    <!--  Modern Button Style  -->
-    <Style x:Key="ModernButton"
-           TargetType="Button">
-      <Setter Property="Background"
-              Value="#0078D4" />
-      <Setter Property="Foreground"
-              Value="White" />
-      <Setter Property="BorderThickness"
-              Value="0" />
-      <Setter Property="Padding"
-              Value="16,8" />
-      <Setter Property="FontWeight"
-              Value="SemiBold" />
-      <Setter Property="Cursor"
-              Value="Hand" />
-      <Setter Property="Template">
-        <Setter.Value>
-          <ControlTemplate TargetType="Button">
-            <Border Background="{TemplateBinding Background}"
-                    BorderBrush="{TemplateBinding BorderBrush}"
-                    BorderThickness="{TemplateBinding BorderThickness}"
-                    CornerRadius="4">
-              <ContentPresenter HorizontalAlignment="Center"
-                                VerticalAlignment="Center" />
-            </Border>
-          </ControlTemplate>
-        </Setter.Value>
-      </Setter>
-      <Style.Triggers>
-        <Trigger Property="IsMouseOver"
-                 Value="True">
-          <Setter Property="Background"
-                  Value="#005A9E" />
-        </Trigger>
-        <Trigger Property="IsEnabled"
-                 Value="False">
-          <Setter Property="Background"
-                  Value="#CCCCCC" />
-          <Setter Property="Foreground"
-                  Value="#666666" />
-        </Trigger>
-      </Style.Triggers>
-    </Style>
-
-    <!--  Secondary Button Style  -->
-    <Style x:Key="SecondaryButton"
-           TargetType="Button">
-      <Setter Property="Background"
-              Value="White" />
-      <Setter Property="Foreground"
-              Value="#333333" />
-      <Setter Property="BorderBrush"
-              Value="#CCCCCC" />
-      <Setter Property="BorderThickness"
-              Value="1" />
-      <Setter Property="Padding"
-              Value="16,8" />
-      <Setter Property="FontWeight"
-              Value="Normal" />
-      <Setter Property="Cursor"
-              Value="Hand" />
-      <Setter Property="Template">
-        <Setter.Value>
-          <ControlTemplate TargetType="Button">
-            <Border Background="{TemplateBinding Background}"
-                    BorderBrush="{TemplateBinding BorderBrush}"
-                    BorderThickness="{TemplateBinding BorderThickness}"
-                    CornerRadius="4">
-              <ContentPresenter HorizontalAlignment="Center"
-                                VerticalAlignment="Center" />
-            </Border>
-          </ControlTemplate>
-        </Setter.Value>
-      </Setter>
-      <Style.Triggers>
-        <Trigger Property="IsMouseOver"
-                 Value="True">
-          <Setter Property="Background"
-                  Value="LightBlue" />
-          <Setter Property="BorderBrush"
-                  Value="#999999" />
-        </Trigger>
-        <Trigger Property="IsEnabled"
-                 Value="False">
-          <Setter Property="Background"
-                  Value="LightGray" />
-          
-        </Trigger>
-      </Style.Triggers>
-    </Style>
-
-    <!--  Modern TextBox Style  -->
-    <Style x:Key="ModernTextBox"
-           TargetType="TextBox">
-      <Setter Property="Padding"
-              Value="10,8" />
-      <Setter Property="BorderBrush"
-              Value="#CCCCCC" />
-      <Setter Property="BorderThickness"
-              Value="1" />
-      <Setter Property="Background"
-              Value="White" />
-      <Setter Property="VerticalContentAlignment"
-              Value="Center" />
-      <Setter Property="Template">
-        <Setter.Value>
-          <ControlTemplate TargetType="TextBox">
-            <Border Background="{TemplateBinding Background}"
-                    BorderBrush="{TemplateBinding BorderBrush}"
-                    BorderThickness="{TemplateBinding BorderThickness}"
-                    CornerRadius="4">
-              <ScrollViewer x:Name="PART_ContentHost" />
-            </Border>
-          </ControlTemplate>
-        </Setter.Value>
-      </Setter>
-      <Style.Triggers>
-        <Trigger Property="IsFocused"
-                 Value="True">
-          <Setter Property="BorderBrush"
-                  Value="#0078D4" />
-          <Setter Property="BorderThickness"
-                  Value="2" />
-        </Trigger>
-      </Style.Triggers>
-    </Style>
-  </Window.Resources>
-
   <Grid>
     <Grid.RowDefinitions>
       <RowDefinition Height="Auto" />
@@ -310,7 +182,6 @@
 
       <!--  Action Buttons  -->
       <StackPanel Grid.Row="2"
-                  Height="30"
                   Margin="0,8,0,8"
                   HorizontalAlignment="Right"
                   Orientation="Horizontal">
@@ -367,18 +238,7 @@
                    Text="Ready" />
 
         <!--  Developed By  -->
-        <StackPanel Grid.Column="1"
-                    VerticalAlignment="Center"
-                    Orientation="Horizontal">
-          <TextBlock FontFamily="Segoe UI Light"
-                     FontSize="13"
-                     Foreground="#999999"
-                     Text="Developed by " />
-          <TextBlock FontFamily="Segoe UI Semibold"
-                     FontSize="13"
-                     Foreground="#0078D4"
-                     Text="Umar Faruq Lilla" />
-        </StackPanel>
+        <controls:DeveloperFooter Grid.Column="1" />
       </Grid>
     </Border>
   </Grid>
