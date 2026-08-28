@@ -1,0 +1,24 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <SolidColorBrush x:Key="ThemeBackgroundBrush" Color="#1E1E1E" />
+  <SolidColorBrush x:Key="ThemeSurfaceBrush" Color="#252526" />
+  <SolidColorBrush x:Key="ThemeSurfaceAltBrush" Color="#2D2D30" />
+  <SolidColorBrush x:Key="ThemeBorderBrush" Color="#3F3F46" />
+  <SolidColorBrush x:Key="ThemeTextPrimaryBrush" Color="#E8E8E8" />
+  <SolidColorBrush x:Key="ThemeTextSecondaryBrush" Color="#B0B0B0" />
+  <SolidColorBrush x:Key="ThemeTextMutedBrush" Color="#858585" />
+  <SolidColorBrush x:Key="ThemeAccentBrush" Color="#0078D4" />
+  <SolidColorBrush x:Key="ThemeAccentHoverBrush" Color="#1A8FE8" />
+  <SolidColorBrush x:Key="ThemeInputBackgroundBrush" Color="#1E1E1E" />
+  <SolidColorBrush x:Key="ThemeInputBorderBrush" Color="#555555" />
+  <SolidColorBrush x:Key="ThemeSecondaryButtonBrush" Color="#3C3C3C" />
+  <SolidColorBrush x:Key="ThemeSecondaryButtonHoverBrush" Color="#4A4A4A" />
+  <SolidColorBrush x:Key="ThemeDisabledBrush" Color="#5A5A5A" />
+  <SolidColorBrush x:Key="ThemeDataGridRowAltBrush" Color="#2A2A2D" />
+  <SolidColorBrush x:Key="ThemeWarningBackgroundBrush" Color="#3D2E1A" />
+  <SolidColorBrush x:Key="ThemeWarningBorderBrush" Color="#8B6914" />
+  <SolidColorBrush x:Key="ThemeWarningTextBrush" Color="#FFB86C" />
+  <SolidColorBrush x:Key="ThemeSelectionBackgroundBrush" Color="#094771" />
+  <SolidColorBrush x:Key="ThemeSelectionForegroundBrush" Color="#FFFFFF" />
+  <SolidColorBrush x:Key="ThemePopupBackgroundBrush" Color="#252526" />
+</ResourceDictionary>

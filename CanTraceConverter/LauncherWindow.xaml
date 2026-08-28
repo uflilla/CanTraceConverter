@@ -8,7 +8,7 @@
         MinWidth="480"
         MinHeight="380"
         WindowStartupLocation="CenterScreen"
-        Background="#F5F5F5"
+        Background="{DynamicResource ThemeBackgroundBrush}"
         FontFamily="Segoe UI"
         FontSize="16"
         ResizeMode="CanMinimize">
@@ -20,8 +20,8 @@
     </Grid.RowDefinitions>
 
     <StackPanel Grid.Row="0" Margin="0,0,0,24">
-      <TextBlock FontSize="24" FontWeight="SemiBold" Foreground="#333333" Text="USB-CAN Studio" />
-      <TextBlock Margin="0,8,0,0" FontSize="14" Foreground="#666666"
+      <TextBlock FontSize="24" FontWeight="SemiBold" Text="USB-CAN Studio" />
+      <TextBlock Margin="0,8,0,0" FontSize="14" Foreground="{DynamicResource ThemeTextSecondaryBrush}"
                  Text="Monitor, record, convert and analyze Systec USB-CAN traces" TextWrapping="Wrap" />
     </StackPanel>
 

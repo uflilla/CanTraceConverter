@@ -6,8 +6,9 @@
         Width="420"
         Height="280"
         WindowStartupLocation="CenterOwner"
-        Background="#F5F5F5"
+        Background="{DynamicResource ThemeBackgroundBrush}"
         FontFamily="Segoe UI"
+        Foreground="{DynamicResource ThemeTextPrimaryBrush}"
         ResizeMode="NoResize">
   <Grid Margin="24">
     <Grid.RowDefinitions>
@@ -20,6 +21,7 @@
     </Grid.RowDefinitions>
 
     <TextBlock Grid.Row="0" Margin="0,0,0,16"
+               Foreground="{DynamicResource ThemeTextSecondaryBrush}"
                Text="Export messages within time range (ms, leave empty for all)" TextWrapping="Wrap" />
 
     <Grid Grid.Row="1" Margin="0,0,0,12">

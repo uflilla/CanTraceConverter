@@ -102,12 +102,25 @@
     <Compile Include="Models\CanMessage.cs" />
     <Compile Include="Models\LiveCanRow.cs" />
     <Compile Include="Models\SessionConfig.cs" />
+    <Compile Include="Services\ThemeManager.cs" />
     <Compile Include="Services\CanBusService.cs" />
     <Compile Include="Services\CanHardwareAvailability.cs" />
     <Compile Include="Services\CanMessageHelper.cs" />
     <Compile Include="Services\CanMessageRepository.cs" />
     <Compile Include="Services\PeriodicTransmitter.cs" />
     <Compile Include="ViewModels\TraceConverter.cs" />
+    <Page Include="Themes\Dark.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="Themes\Light.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
+    <Page Include="Themes\SharedStyles.xaml">
+      <Generator>MSBuild:Compile</Generator>
+      <SubType>Designer</SubType>
+    </Page>
     <Page Include="Controls\DeveloperFooter.xaml">
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>

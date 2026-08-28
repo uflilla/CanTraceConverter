@@ -4,11 +4,11 @@
         xmlns:controls="clr-namespace:CanTraceConverter.Controls"
         Title="New Monitor Session"
         Width="540"
-        Height="600"
+        Height="700"
         MinWidth="480"
         MinHeight="480"
         WindowStartupLocation="CenterOwner"
-        Background="#F5F5F5"
+        Background="{DynamicResource ThemeBackgroundBrush}"
         FontFamily="Segoe UI"
         FontSize="14"
         ResizeMode="CanResize">
@@ -29,23 +29,25 @@
         <TextBox x:Name="txtTitle" Margin="0,0,0,12" Style="{StaticResource ModernTextBox}" />
 
         <TextBlock Margin="0,0,0,4" FontWeight="Medium" Text="USB-CAN Device" />
-        <ComboBox x:Name="cmbDevice" Margin="0,0,0,8" Height="36" Padding="8,0"
-                  VerticalContentAlignment="Center" DisplayMemberPath="DisplayName" />
+        <ComboBox x:Name="cmbDevice" Margin="0,0,0,8"
+                  Style="{StaticResource ModernComboBox}" DisplayMemberPath="DisplayName" />
 
         <Border x:Name="borderDeviceWarning" Margin="0,0,0,12" Padding="10,8"
-                Background="#FFF8F0" BorderBrush="#E8C080" BorderThickness="1"
+                Background="{DynamicResource ThemeWarningBackgroundBrush}"
+                BorderBrush="{DynamicResource ThemeWarningBorderBrush}" BorderThickness="1"
                 CornerRadius="4" Visibility="Collapsed">
-          <TextBlock x:Name="txtDeviceWarning" FontSize="12" Foreground="#A05800" TextWrapping="Wrap" />
+          <TextBlock x:Name="txtDeviceWarning" FontSize="12"
+                     Foreground="{DynamicResource ThemeWarningTextBrush}" TextWrapping="Wrap" />
         </Border>
 
         <TextBlock Margin="0,0,0,4" FontWeight="Medium" Text="CAN Channel" />
-        <ComboBox x:Name="cmbChannel" Margin="0,0,0,12" Height="36" Padding="8,0" VerticalContentAlignment="Center">
+        <ComboBox x:Name="cmbChannel" Margin="0,0,0,12" Style="{StaticResource ModernComboBox}">
           <ComboBoxItem Content="Channel 0" Tag="0" IsSelected="True" />
           <ComboBoxItem Content="Channel 1" Tag="1" />
         </ComboBox>
 
         <TextBlock Margin="0,0,0,4" FontWeight="Medium" Text="Baud Rate (kBit/s)" />
-        <ComboBox x:Name="cmbBaud" Margin="0,0,0,12" Height="36" Padding="8,0" VerticalContentAlignment="Center">
+        <ComboBox x:Name="cmbBaud" Margin="0,0,0,12" Style="{StaticResource ModernComboBox}">
           <ComboBoxItem Content="1000" Tag="1000" />
           <ComboBoxItem Content="800" Tag="800" />
           <ComboBoxItem Content="500" Tag="500" IsSelected="True" />
@@ -59,7 +61,7 @@
 
         <CheckBox x:Name="chkListenOnly" Margin="0,0,0,4" IsChecked="True"
                   Content="Listen-only mode (passive monitoring, no transmit)" />
-        <TextBlock Margin="0,0,0,12" FontSize="12" Foreground="#666666" TextWrapping="Wrap"
+        <TextBlock Margin="0,0,0,12" FontSize="12" Foreground="{DynamicResource ThemeTextSecondaryBrush}" TextWrapping="Wrap"
                    Text="Uncheck to enable Send CAN Packet in the monitor window." />
 
         <TextBlock Margin="0,0,0,4" FontWeight="Medium" Text="Log Directory" />
@@ -73,7 +75,8 @@
                   Content="Browse..." Style="{StaticResource SecondaryButton}" />
         </Grid>
 
-        <TextBlock x:Name="txtDbPreview" Margin="0,0,0,8" FontSize="12" Foreground="#666666" TextWrapping="Wrap" />
+        <TextBlock x:Name="txtDbPreview" Margin="0,0,0,8" FontSize="12"
+                   Foreground="{DynamicResource ThemeTextSecondaryBrush}" TextWrapping="Wrap" />
       </StackPanel>
     </ScrollViewer>
 

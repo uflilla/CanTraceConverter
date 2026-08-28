@@ -10,41 +10,12 @@
   Height="900"
   MinWidth="1200"
   MinHeight="700"
-  Background="#F5F5F5"
+  Background="{DynamicResource ThemeBackgroundBrush}"
   FontFamily="Segoe UI"
   FontSize="14"
   WindowStartupLocation="CenterScreen"
   WindowState="Maximized"
   mc:Ignorable="d">
-  <Window.Resources>
-    <!--  ComboBox Style  -->
-    <Style x:Key="ModernComboBox" TargetType="ComboBox">
-      <Setter Property="Padding" Value="8,6" />
-      <Setter Property="BorderBrush" Value="#CCCCCC" />
-      <Setter Property="BorderThickness" Value="1" />
-      <Setter Property="Background" Value="White" />
-    </Style>
-
-    <!--  DataGrid Style  -->
-    <Style x:Key="ModernDataGrid" TargetType="DataGrid">
-      <Setter Property="Background" Value="White" />
-      <Setter Property="BorderBrush" Value="#E0E0E0" />
-      <Setter Property="BorderThickness" Value="1" />
-      <Setter Property="RowBackground" Value="White" />
-      <Setter Property="AlternatingRowBackground" Value="#F9F9F9" />
-      <Setter Property="GridLinesVisibility" Value="Horizontal" />
-      <Setter Property="HorizontalGridLinesBrush" Value="#E0E0E0" />
-      <Setter Property="AutoGenerateColumns" Value="False" />
-      <Setter Property="CanUserAddRows" Value="False" />
-      <Setter Property="CanUserDeleteRows" Value="False" />
-      <Setter Property="IsReadOnly" Value="True" />
-      <Setter Property="SelectionMode" Value="Extended" />
-      <Setter Property="SelectionUnit" Value="FullRow" />
-      <Setter Property="FontFamily" Value="Consolas" />
-      <Setter Property="FontSize" Value="12" />
-    </Style>
-  </Window.Resources>
-
   <Grid>
     <Grid.RowDefinitions>
       <RowDefinition Height="Auto" />
@@ -52,108 +23,62 @@
       <RowDefinition Height="Auto" />
     </Grid.RowDefinitions>
 
-    <!--  Header  -->
-    <Border
-      Grid.Row="0"
-      Padding="24,20"
-      Background="White"
-      BorderBrush="#E0E0E0"
-      BorderThickness="0,0,0,1">
-      <Grid>
-        <StackPanel VerticalAlignment="Center">
-          <TextBlock
-            FontSize="20"
-            FontWeight="SemiBold"
-            Foreground="#333333"
-            Text="CAN Trace Analysis" />
-          <TextBlock
-            Margin="0,4,0,0"
-            FontSize="13"
-            Foreground="#666666"
-            Text="Advanced filtering and analysis of CAN messages" />
-        </StackPanel>
-      </Grid>
+    <Border Grid.Row="0" Padding="24,20"
+            Background="{DynamicResource ThemeSurfaceBrush}"
+            BorderBrush="{DynamicResource ThemeBorderBrush}"
+            BorderThickness="0,0,0,1">
+      <StackPanel VerticalAlignment="Center">
+        <TextBlock FontSize="20" FontWeight="SemiBold" Text="CAN Trace Analysis" />
+        <TextBlock Margin="0,4,0,0" FontSize="13"
+                   Foreground="{DynamicResource ThemeTextSecondaryBrush}"
+                   Text="Advanced filtering and analysis of CAN messages" />
+      </StackPanel>
     </Border>
 
-    <!--  Main Content  -->
     <Grid Grid.Row="1" Margin="24,20,24,0">
       <Grid.ColumnDefinitions>
         <ColumnDefinition Width="350" />
         <ColumnDefinition Width="*" />
       </Grid.ColumnDefinitions>
 
-      <!--  Left Panel: Filters and Statistics  -->
-      <Border
-        Grid.Column="0"
-        Margin="0,0,12,0"
-        Background="White"
-        BorderBrush="#E0E0E0"
-        BorderThickness="1"
-        CornerRadius="6">
+      <Border Grid.Column="0" Margin="0,0,12,0"
+              Background="{DynamicResource ThemeSurfaceBrush}"
+              BorderBrush="{DynamicResource ThemeBorderBrush}"
+              BorderThickness="1"
+              CornerRadius="6">
         <ScrollViewer VerticalScrollBarVisibility="Auto">
           <StackPanel Margin="16">
+            <TextBlock Margin="0,0,0,8" FontSize="15" FontWeight="SemiBold" Text="Filters" />
 
-
-            <!--  Filter Section  -->
-            <TextBlock
-              Margin="0,0,0,8"
-              FontSize="15"
-              FontWeight="SemiBold"
-              Foreground="#333333"
-              Text="Filters" />
-
-            <!--  Direction Filter  -->
-            <TextBlock
-              Margin="0,8,0,4"
-              FontWeight="Medium"
-              Foreground="#555555"
-              Text="Direction:" />
-            <ComboBox
-              x:Name="cmbDirection"
-              SelectionChanged="OnFilterChanged"
-              Style="{StaticResource ModernComboBox}">
+            <TextBlock Margin="0,8,0,4" FontWeight="Medium"
+                       Foreground="{DynamicResource ThemeTextSecondaryBrush}" Text="Direction:" />
+            <ComboBox x:Name="cmbDirection" SelectionChanged="OnFilterChanged"
+                      Style="{StaticResource ModernComboBox}">
               <ComboBoxItem Content="All" IsSelected="True" />
               <ComboBoxItem Content="RX" />
               <ComboBoxItem Content="TX" />
             </ComboBox>
 
-            <!--  CAN ID Filter  -->
-            <TextBlock
-              Margin="0,12,0,4"
-              FontWeight="Medium"
-              Foreground="#555555"
-              Text="CAN ID (hex):" />
+            <TextBlock Margin="0,12,0,4" FontWeight="Medium"
+                       Foreground="{DynamicResource ThemeTextSecondaryBrush}" Text="CAN ID (hex):" />
             <Grid>
               <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
               </Grid.ColumnDefinitions>
-              <TextBox
-                x:Name="txtCanIdFilter"
-                Grid.Column="0"
-                Style="{StaticResource ModernTextBox}"
-                TextChanged="OnFilterChanged"
-                ToolTip="Enter CAN ID in hex (e.g., 0B060602)" />
-              <Button
-                x:Name="btnClearCanId"
-                Grid.Column="1"
-                Margin="4,0,0,0"
-                Padding="8,6"
-                Click="btnClearCanId_Click"
-                Content="✕"
-                Style="{StaticResource SecondaryButton}" />
+              <TextBox x:Name="txtCanIdFilter" Grid.Column="0"
+                       Style="{StaticResource ModernTextBox}"
+                       TextChanged="OnFilterChanged"
+                       ToolTip="Enter CAN ID in hex (e.g., 0B060602)" />
+              <Button x:Name="btnClearCanId" Grid.Column="1" Margin="4,0,0,0"
+                      Padding="8,6" Click="btnClearCanId_Click"
+                      Content="✕" Style="{StaticResource SecondaryButton}" />
             </Grid>
 
-            <!--  DLC Filter  -->
-            <TextBlock
-              Margin="0,12,0,4"
-              FontWeight="Medium"
-              Foreground="#555555"
-              Text="DLC (Data Length):" />
-            <ComboBox
-              x:Name="cmbDlcFilter"
-              SelectionChanged="OnFilterChanged"
-              Style="{StaticResource ModernComboBox}">
+            <TextBlock Margin="0,12,0,4" FontWeight="Medium"
+                       Foreground="{DynamicResource ThemeTextSecondaryBrush}" Text="DLC (Data Length):" />
+            <ComboBox x:Name="cmbDlcFilter" SelectionChanged="OnFilterChanged"
+                      Style="{StaticResource ModernComboBox}">
               <ComboBoxItem Content="All" IsSelected="True" />
               <ComboBoxItem Content="0" />
               <ComboBoxItem Content="1" />
@@ -166,84 +91,47 @@
               <ComboBoxItem Content="8" />
             </ComboBox>
 
-            <!--  Time Range Filter  -->
-            <TextBlock
-              Margin="0,12,0,4"
-              FontWeight="Medium"
-              Foreground="#555555"
-              Text="Time Range (msec):" />
+            <TextBlock Margin="0,12,0,4" FontWeight="Medium"
+                       Foreground="{DynamicResource ThemeTextSecondaryBrush}" Text="Time Range (msec):" />
             <Grid>
               <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" />
               </Grid.ColumnDefinitions>
-              <TextBox
-                x:Name="txtTimeFrom"
-                Grid.Column="0"
-                Style="{StaticResource ModernTextBox}"
-                TextChanged="OnFilterChanged"
-                ToolTip="From (msec)" />
-              <TextBlock
-                Grid.Column="1"
-                Margin="8,0"
-                VerticalAlignment="Center"
-                Text="to" />
-              <TextBox
-                x:Name="txtTimeTo"
-                Grid.Column="2"
-                Style="{StaticResource ModernTextBox}"
-                TextChanged="OnFilterChanged"
-                ToolTip="To (msec)" />
+              <TextBox x:Name="txtTimeFrom" Grid.Column="0"
+                       Style="{StaticResource ModernTextBox}"
+                       TextChanged="OnFilterChanged" ToolTip="From (msec)" />
+              <TextBlock Grid.Column="1" Margin="8,0" VerticalAlignment="Center" Text="to" />
+              <TextBox x:Name="txtTimeTo" Grid.Column="2"
+                       Style="{StaticResource ModernTextBox}"
+                       TextChanged="OnFilterChanged" ToolTip="To (msec)" />
             </Grid>
 
-            <!--  Data Pattern Filter  -->
-            <TextBlock
-              Margin="0,12,0,4"
-              FontWeight="Medium"
-              Foreground="#555555"
-              Text="Data Pattern (hex):" />
-            <TextBox
-              x:Name="txtDataPattern"
-              Style="{StaticResource ModernTextBox}"
-              TextChanged="OnFilterChanged"
-              ToolTip="Search for hex pattern in data (e.g., 21 06)" />
+            <TextBlock Margin="0,12,0,4" FontWeight="Medium"
+                       Foreground="{DynamicResource ThemeTextSecondaryBrush}" Text="Data Pattern (hex):" />
+            <TextBox x:Name="txtDataPattern" Style="{StaticResource ModernTextBox}"
+                     TextChanged="OnFilterChanged"
+                     ToolTip="Search for hex pattern in data (e.g., 21 06)" />
 
-            <!--  Source/Node ID Filter  -->
-            <TextBlock
-              Margin="0,12,0,4"
-              FontWeight="Medium"
-              Foreground="#555555"
-              Text="Source/Node ID (from CAN ID):" />
-            <TextBox
-              x:Name="txtSourceIdFilter"
-              Style="{StaticResource ModernTextBox}"
-              TextChanged="OnFilterChanged"
-              ToolTip="Filter by source/node ID extracted from CAN ID" />
+            <TextBlock Margin="0,12,0,4" FontWeight="Medium"
+                       Foreground="{DynamicResource ThemeTextSecondaryBrush}" Text="Source/Node ID (from CAN ID):" />
+            <TextBox x:Name="txtSourceIdFilter" Style="{StaticResource ModernTextBox}"
+                     TextChanged="OnFilterChanged"
+                     ToolTip="Filter by source/node ID extracted from CAN ID" />
 
-            <!--  Function Code Filter  -->
-            <TextBlock
-              Margin="0,12,0,4"
-              FontWeight="Medium"
-              Foreground="#555555"
-              Text="Function Code (from data byte):" />
+            <TextBlock Margin="0,12,0,4" FontWeight="Medium"
+                       Foreground="{DynamicResource ThemeTextSecondaryBrush}" Text="Function Code (from data byte):" />
             <Grid>
               <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" />
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="*" />
               </Grid.ColumnDefinitions>
-              <TextBlock
-                Grid.Column="0"
-                Margin="0,0,8,0"
-                VerticalAlignment="Center"
-                Text="Byte:" />
-              <ComboBox
-                x:Name="cmbFunctionCodeByte"
-                Grid.Column="1"
-                Margin="0,0,8,0"
-                SelectionChanged="OnFilterChanged"
-                Style="{StaticResource ModernComboBox}">
+              <TextBlock Grid.Column="0" Margin="0,0,8,0" VerticalAlignment="Center" Text="Byte:" />
+              <ComboBox x:Name="cmbFunctionCodeByte" Grid.Column="1" Margin="0,0,8,0"
+                        SelectionChanged="OnFilterChanged"
+                        Style="{StaticResource ModernComboBox}">
                 <ComboBoxItem Content="0" IsSelected="True" />
                 <ComboBoxItem Content="1" />
                 <ComboBoxItem Content="2" />
@@ -253,102 +141,56 @@
                 <ComboBoxItem Content="6" />
                 <ComboBoxItem Content="7" />
               </ComboBox>
-              <TextBox
-                x:Name="txtFunctionCode"
-                Grid.Column="2"
-                Style="{StaticResource ModernTextBox}"
-                TextChanged="OnFilterChanged"
-                ToolTip="Value (hex)" />
+              <TextBox x:Name="txtFunctionCode" Grid.Column="2"
+                       Style="{StaticResource ModernTextBox}"
+                       TextChanged="OnFilterChanged" ToolTip="Value (hex)" />
             </Grid>
 
-            <!--  Action Buttons  -->
             <StackPanel Margin="0,20,0,0" Orientation="Vertical">
-              <Button
-                Click="btnApplyFilters_Click"
-                Content="Apply Filters"
-                Style="{StaticResource ModernButton}" />
-              <Button
-                Margin="0,8,0,0"
-                Click="btnClearFilters_Click"
-                Content="Clear All Filters"
-                Style="{StaticResource SecondaryButton}" />
-              <Button
-                Margin="0,8,0,0"
-                Click="btnExportFiltered_Click"
-                Content="Export Filtered Data"
-                Style="{StaticResource SecondaryButton}" />
+              <Button Click="btnApplyFilters_Click" Content="Apply Filters"
+                      Style="{StaticResource ModernButton}" />
+              <Button Margin="0,8,0,0" Click="btnClearFilters_Click"
+                      Content="Clear All Filters" Style="{StaticResource SecondaryButton}" />
+              <Button Margin="0,8,0,0" Click="btnExportFiltered_Click"
+                      Content="Export Filtered Data" Style="{StaticResource SecondaryButton}" />
             </StackPanel>
 
-            <!--  Statistics Section  -->
-            <TextBlock
-              Margin="0,24,0,8"
-              FontSize="15"
-              FontWeight="SemiBold"
-              Foreground="#333333"
-              Text="Statistics" />
-            <Border
-              Padding="12"
-              Background="#F9F9F9"
-              BorderBrush="#E0E0E0"
-              BorderThickness="1"
-              CornerRadius="4">
-              <StackPanel>
-                <TextBlock
-                  x:Name="txtStatistics"
-                  FontFamily="Consolas"
-                  FontSize="11"
-                  Foreground="#666666" />
-              </StackPanel>
+            <TextBlock Margin="0,24,0,8" FontSize="15" FontWeight="SemiBold" Text="Statistics" />
+            <Border Padding="12"
+                    Background="{DynamicResource ThemeSurfaceAltBrush}"
+                    BorderBrush="{DynamicResource ThemeBorderBrush}"
+                    BorderThickness="1"
+                    CornerRadius="4">
+              <TextBlock x:Name="txtStatistics" FontFamily="Consolas" FontSize="11"
+                         Foreground="{DynamicResource ThemeTextSecondaryBrush}" />
             </Border>
 
-            <!--  Unique CAN IDs  -->
-            <TextBlock
-              Margin="0,16,0,8"
-              FontWeight="Medium"
-              Foreground="#555555"
-              Text="Unique CAN IDs:" />
-            <ListBox
-              x:Name="lstUniqueIds"
-              Height="150"
-              BorderBrush="#E0E0E0"
-              BorderThickness="1"
-              FontFamily="Consolas"
-              FontSize="11"
-              SelectionChanged="lstUniqueIds_SelectionChanged" />
+            <TextBlock Margin="0,16,0,8" FontWeight="Medium"
+                       Foreground="{DynamicResource ThemeTextSecondaryBrush}" Text="Unique CAN IDs:" />
+            <ListBox x:Name="lstUniqueIds" Height="150"
+                     Style="{StaticResource ModernListBox}"
+                     FontFamily="Consolas" FontSize="11"
+                     SelectionChanged="lstUniqueIds_SelectionChanged" />
 
-            <!--  File Information  -->
-            <TextBlock
-              Margin="0,0,0,8"
-              FontSize="15"
-              FontWeight="SemiBold"
-              Foreground="#333333"
-              Text="File Information" />
-            <Border
-              Padding="12"
-              Background="#F9F9F9"
-              BorderBrush="#E0E0E0"
-              BorderThickness="1"
-              CornerRadius="4">
-              <StackPanel>
-                <TextBlock
-                  x:Name="txtFileInfo"
-                  FontFamily="Consolas"
-                  FontSize="11"
-                  Foreground="#666666"
-                  TextWrapping="Wrap" />
-              </StackPanel>
+            <TextBlock Margin="0,16,0,8" FontSize="15" FontWeight="SemiBold" Text="File Information" />
+            <Border Padding="12"
+                    Background="{DynamicResource ThemeSurfaceAltBrush}"
+                    BorderBrush="{DynamicResource ThemeBorderBrush}"
+                    BorderThickness="1"
+                    CornerRadius="4">
+              <TextBlock x:Name="txtFileInfo" FontFamily="Consolas" FontSize="11"
+                         Foreground="{DynamicResource ThemeTextSecondaryBrush}"
+                         TextWrapping="Wrap" />
             </Border>
           </StackPanel>
         </ScrollViewer>
       </Border>
 
-      <!--  Right Panel: Data Grid  -->
-      <Border
-        Grid.Column="1"
-        Background="White"
-        BorderBrush="#E0E0E0"
-        BorderThickness="1"
-        CornerRadius="6">
+      <Border Grid.Column="1"
+              Background="{DynamicResource ThemeSurfaceBrush}"
+              BorderBrush="{DynamicResource ThemeBorderBrush}"
+              BorderThickness="1"
+              CornerRadius="6">
         <Grid>
           <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
@@ -356,13 +198,10 @@
             <RowDefinition Height="Auto" />
           </Grid.RowDefinitions>
 
-          <!--  Toolbar  -->
-          <Border
-            Grid.Row="0"
-            Padding="16,12"
-            Background="#FAFAFA"
-            BorderBrush="#E0E0E0"
-            BorderThickness="0,0,0,1">
+          <Border Grid.Row="0" Padding="16,12"
+                  Background="{DynamicResource ThemeSurfaceAltBrush}"
+                  BorderBrush="{DynamicResource ThemeBorderBrush}"
+                  BorderThickness="0,0,0,1">
             <Grid>
               <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto" />
@@ -370,27 +209,15 @@
                 <ColumnDefinition Width="Auto" />
               </Grid.ColumnDefinitions>
 
-              <TextBlock
-                Grid.Column="0"
-                VerticalAlignment="Center"
-                FontWeight="SemiBold"
-                Foreground="#333333"
-                Text="CAN Messages" />
+              <TextBlock Grid.Column="0" VerticalAlignment="Center"
+                         FontWeight="SemiBold" Text="CAN Messages" />
 
-              <StackPanel
-                Grid.Column="2"
-                HorizontalAlignment="Right"
-                Orientation="Horizontal">
-                <TextBlock
-                  Margin="0,0,8,0"
-                  VerticalAlignment="Center"
-                  Foreground="#666666"
-                  Text="View Mode:" />
-                <ComboBox
-                  x:Name="cmbViewMode"
-                  Width="180"
-                  SelectionChanged="cmbViewMode_SelectionChanged"
-                  Style="{StaticResource ModernComboBox}">
+              <StackPanel Grid.Column="2" HorizontalAlignment="Right" Orientation="Horizontal">
+                <TextBlock Margin="0,0,8,0" VerticalAlignment="Center"
+                           Foreground="{DynamicResource ThemeTextSecondaryBrush}" Text="View Mode:" />
+                <ComboBox x:Name="cmbViewMode" Width="180"
+                          SelectionChanged="cmbViewMode_SelectionChanged"
+                          Style="{StaticResource ModernComboBox}">
                   <ComboBoxItem Content="All Messages" IsSelected="True" />
                   <ComboBoxItem Content="Unique CAN IDs Only" />
                   <ComboBoxItem Content="Message Timeline" />
@@ -400,60 +227,33 @@
             </Grid>
           </Border>
 
-          <!--  Data Grid  -->
-          <DataGrid
-            x:Name="dgMessages"
-            Grid.Row="1"
-            FontSize="16"
-            Style="{StaticResource ModernDataGrid}">
+          <DataGrid x:Name="dgMessages" Grid.Row="1" FontSize="16"
+                    Style="{StaticResource ModernDataGrid}">
             <DataGrid.Columns>
-              <DataGridTextColumn
-                Width="60"
-                Binding="{Binding Direction}"
-                Header="DIR" />
-              <DataGridTextColumn
-                Width="100"
-                Binding="{Binding Time}"
-                Header="TIME (msec)" />
-              <DataGridTextColumn
-                Width="110"
-                Binding="{Binding CanId}"
-                Header="CAN ID" />
-              <DataGridTextColumn
-                Width="50"
-                Binding="{Binding Dlc}"
-                Header="DLC" />
-              <DataGridTextColumn
-                Width="*"
-                Binding="{Binding Data}"
-                Header="DATA" />
+              <DataGridTextColumn Width="60" Binding="{Binding Direction}" Header="DIR" />
+              <DataGridTextColumn Width="100" Binding="{Binding Time}" Header="TIME (msec)" />
+              <DataGridTextColumn Width="110" Binding="{Binding CanId}" Header="CAN ID" />
+              <DataGridTextColumn Width="50" Binding="{Binding Dlc}" Header="DLC" />
+              <DataGridTextColumn Width="*" Binding="{Binding Data}" Header="DATA" />
             </DataGrid.Columns>
           </DataGrid>
 
-          <!--  Message Count  -->
-          <Border
-            Grid.Row="2"
-            Padding="16,8"
-            Background="#FAFAFA"
-            BorderBrush="#E0E0E0"
-            BorderThickness="0,1,0,0">
-            <TextBlock
-              x:Name="txtMessageCount"
-              FontSize="12"
-              Foreground="#666666"
-              Text="0 messages displayed" />
+          <Border Grid.Row="2" Padding="16,8"
+                  Background="{DynamicResource ThemeSurfaceAltBrush}"
+                  BorderBrush="{DynamicResource ThemeBorderBrush}"
+                  BorderThickness="0,1,0,0">
+            <TextBlock x:Name="txtMessageCount" FontSize="12"
+                       Foreground="{DynamicResource ThemeTextSecondaryBrush}"
+                       Text="0 messages displayed" />
           </Border>
         </Grid>
       </Border>
     </Grid>
 
-    <!--  Footer  -->
-    <Border
-      Grid.Row="2"
-      Padding="24,16"
-      Background="White"
-      BorderBrush="#E0E0E0"
-      BorderThickness="0,1,0,0">
+    <Border Grid.Row="2" Padding="24,16"
+            Background="{DynamicResource ThemeSurfaceBrush}"
+            BorderBrush="{DynamicResource ThemeBorderBrush}"
+            BorderThickness="0,1,0,0">
       <Grid>
         <Grid.ColumnDefinitions>
           <ColumnDefinition Width="*" />
@@ -461,22 +261,15 @@
           <ColumnDefinition Width="Auto" />
         </Grid.ColumnDefinitions>
 
-        <TextBlock
-          x:Name="txtStatus"
-          Grid.Column="0"
-          VerticalAlignment="Center"
-          FontSize="13"
-          Foreground="#666666"
-          Text="Analysis ready" />
+        <TextBlock x:Name="txtStatus" Grid.Column="0"
+                   VerticalAlignment="Center" FontSize="13"
+                   Foreground="{DynamicResource ThemeTextSecondaryBrush}"
+                   Text="Analysis ready" />
 
         <controls:DeveloperFooter Grid.Column="1" Margin="0,0,16,0" />
 
-        <Button
-          Grid.Column="2"
-          MinWidth="100"
-          Click="btnClose_Click"
-          Content="Close"
-          Style="{StaticResource SecondaryButton}" />
+        <Button Grid.Column="2" MinWidth="100" Click="btnClose_Click"
+                Content="Close" Style="{StaticResource SecondaryButton}" />
       </Grid>
     </Border>
   </Grid>

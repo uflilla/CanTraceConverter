@@ -10,7 +10,9 @@
         Height="650"
         MinWidth="800"
         MinHeight="500"
-        Background="#F5F5F5" WindowStartupLocation="CenterScreen" WindowState="Maximized"
+        Background="{DynamicResource ThemeBackgroundBrush}"
+        WindowStartupLocation="CenterScreen"
+        WindowState="Maximized"
         FontFamily="Segoe UI"
         FontSize="16"
         mc:Ignorable="d">
@@ -21,11 +23,10 @@
       <RowDefinition Height="Auto" />
     </Grid.RowDefinitions>
 
-    <!--  Header Section  -->
     <Border Grid.Row="0"
             Padding="24,20"
-            Background="White"
-            BorderBrush="#E0E0E0"
+            Background="{DynamicResource ThemeSurfaceBrush}"
+            BorderBrush="{DynamicResource ThemeBorderBrush}"
             BorderThickness="0,0,0,1">
       <Grid>
         <Grid.ColumnDefinitions>
@@ -36,41 +37,28 @@
                  Width="40"
                  Height="40"
                  Margin="0,0,16,0">
-          <Image 
-                  Source="Images/logo.png">
-            
-          </Image>
+          <Image Source="Images/logo.png" />
         </Viewbox>
-        <StackPanel Grid.Column="1"
-                    VerticalAlignment="Center">
-          <TextBlock FontSize="20"
-                     FontWeight="SemiBold"
-                     Foreground="#333333">
-            USB-CAN Trace Converter
-          </TextBlock>
-          <TextBlock Margin="0,4,0,0"
-                     FontSize="13"
-                     Foreground="#666666">
-            Convert binary USB-CAN trace files (.ucantrc) to readable text format
-          </TextBlock>
+        <StackPanel Grid.Column="1" VerticalAlignment="Center">
+          <TextBlock FontSize="20" FontWeight="SemiBold" Text="USB-CAN Trace Converter" />
+          <TextBlock Margin="0,4,0,0" FontSize="13"
+                     Foreground="{DynamicResource ThemeTextSecondaryBrush}"
+                     Text="Convert binary USB-CAN trace files (.ucantrc) to readable text format" />
         </StackPanel>
       </Grid>
     </Border>
 
-    <!--  Main Content  -->
-    <Grid Grid.Row="1"
-          Margin="24,20,24,0">
+    <Grid Grid.Row="1" Margin="24,20,24,0">
       <Grid.RowDefinitions>
         <RowDefinition Height="Auto" />
         <RowDefinition Height="*" />
         <RowDefinition Height="Auto" />
       </Grid.RowDefinitions>
 
-      <!--  Input/Output Files Section  -->
       <Border Grid.Row="0"
               Padding="20"
-              Background="White"
-              BorderBrush="#E0E0E0"
+              Background="{DynamicResource ThemeSurfaceBrush}"
+              BorderBrush="{DynamicResource ThemeBorderBrush}"
               BorderThickness="1"
               CornerRadius="6">
         <Grid>
@@ -85,64 +73,32 @@
             <RowDefinition Height="Auto" />
           </Grid.RowDefinitions>
 
-          <TextBlock Grid.Row="0"
-                     Grid.Column="0"
-                     Margin="0,0,0,12"
-                     VerticalAlignment="Center"
-                     FontWeight="Medium"
-                     Foreground="#333333">
-            Input File:
-          </TextBlock>
-          <TextBox x:Name="txtInputFile"
-                   Grid.Row="0"
-                   Grid.Column="1"
-                   Margin="0,0,12,12"
-                   Style="{StaticResource ModernTextBox}" />
-          <Button x:Name="btnBrowseInput"
-                  Grid.Row="0"
-                  Grid.Column="2"
-                  Margin="0,0,0,12"
-                  Click="btnBrowseInput_Click"
-                  Content="Browse..."
-                  Style="{StaticResource SecondaryButton}" />
+          <TextBlock Grid.Row="0" Grid.Column="0" Margin="0,0,0,12"
+                     VerticalAlignment="Center" FontWeight="Medium" Text="Input File:" />
+          <TextBox x:Name="txtInputFile" Grid.Row="0" Grid.Column="1"
+                   Margin="0,0,12,12" Style="{StaticResource ModernTextBox}" />
+          <Button x:Name="btnBrowseInput" Grid.Row="0" Grid.Column="2"
+                  Margin="0,0,0,12" Click="btnBrowseInput_Click"
+                  Content="Browse..." Style="{StaticResource SecondaryButton}" />
 
-          <TextBlock Grid.Row="1"
-                     Grid.Column="0"
-                     Margin="0,0,0,12"
-                     VerticalAlignment="Center"
-                     FontWeight="Medium"
-                     Foreground="#333333">
-            Output File:
-          </TextBlock>
-          <TextBox x:Name="txtOutputFile"
-                   Grid.Row="1"
-                   Grid.Column="1" TextChanged="TxtOutputFile_OnTextChanged"
-                   Margin="0,0,12,12"
-                   Style="{StaticResource ModernTextBox}" />
-          <Button x:Name="btnBrowseOutput"
-                  Grid.Row="1"
-                  Grid.Column="2"
-                  Margin="0,0,0,12"
-                  Click="btnBrowseOutput_Click"
-                  Content="Browse..."
-                  Style="{StaticResource SecondaryButton}" />
+          <TextBlock Grid.Row="1" Grid.Column="0" Margin="0,0,0,12"
+                     VerticalAlignment="Center" FontWeight="Medium" Text="Output File:" />
+          <TextBox x:Name="txtOutputFile" Grid.Row="1" Grid.Column="1"
+                   TextChanged="TxtOutputFile_OnTextChanged"
+                   Margin="0,0,12,12" Style="{StaticResource ModernTextBox}" />
+          <Button x:Name="btnBrowseOutput" Grid.Row="1" Grid.Column="2"
+                  Margin="0,0,0,12" Click="btnBrowseOutput_Click"
+                  Content="Browse..." Style="{StaticResource SecondaryButton}" />
 
-          <CheckBox x:Name="chkDiffTime"
-                    Grid.Row="2"
-                    Grid.Column="1"
-                    Grid.ColumnSpan="2"
-                    Margin="0,8,0,0"
-                    VerticalAlignment="Center"
-                    Content="Show differential time (time since previous message)"
-                    Foreground="#333333" />
+          <CheckBox x:Name="chkDiffTime" Grid.Row="2" Grid.Column="1" Grid.ColumnSpan="2"
+                    Margin="0,8,0,0" VerticalAlignment="Center"
+                    Content="Show differential time (time since previous message)" />
         </Grid>
       </Border>
 
-      <!--  Output Display  -->
-      <Border Grid.Row="1"
-              Margin="0,16,0,0"
-              Background="White"
-              BorderBrush="#E0E0E0"
+      <Border Grid.Row="1" Margin="0,16,0,0"
+              Background="{DynamicResource ThemeSurfaceBrush}"
+              BorderBrush="{DynamicResource ThemeBorderBrush}"
               BorderThickness="1"
               CornerRadius="6">
         <Grid>
@@ -151,77 +107,51 @@
             <RowDefinition Height="*" />
           </Grid.RowDefinitions>
 
-          <Border Grid.Row="0"
-                  Padding="16,12"
-                  Background="#FAFAFA"
-                  BorderBrush="#E0E0E0"
+          <Border Grid.Row="0" Padding="16,12"
+                  Background="{DynamicResource ThemeSurfaceAltBrush}"
+                  BorderBrush="{DynamicResource ThemeBorderBrush}"
                   BorderThickness="0,0,0,1">
-            <TextBlock FontWeight="SemiBold"
-                       Foreground="#333333"
-                       Text="Conversion Output" />
+            <TextBlock FontWeight="SemiBold" Text="Conversion Output" />
           </Border>
 
-          <Border Grid.Row="1"
-                  Padding="12">
-            <!--<ScrollViewer HorizontalScrollBarVisibility="Auto" IsDeferredScrollingEnabled="True"
-                          VerticalScrollBarVisibility="Auto">-->
-              <TextBox x:Name="txtOutput"
-                       AcceptsReturn="True"
-                       Background="Transparent"
-                       BorderThickness="0"
-                       FontFamily="Consolas"
-                       Foreground="#333333"
-                       HorizontalScrollBarVisibility="Disabled"
-                       IsReadOnly="True"
-                       TextWrapping="NoWrap"
-                       VerticalScrollBarVisibility="Auto" />
-            <!--</ScrollViewer>-->
+          <Border Grid.Row="1" Padding="12">
+            <TextBox x:Name="txtOutput"
+                     AcceptsReturn="True"
+                     Background="Transparent"
+                     BorderThickness="0"
+                     FontFamily="Consolas"
+                     Foreground="{DynamicResource ThemeTextPrimaryBrush}"
+                     HorizontalScrollBarVisibility="Disabled"
+                     IsReadOnly="True"
+                     TextWrapping="NoWrap"
+                     VerticalScrollBarVisibility="Auto" />
           </Border>
         </Grid>
       </Border>
 
-      <!--  Action Buttons  -->
-      <StackPanel Grid.Row="2"
-                  Margin="0,8,0,8"
-                  HorizontalAlignment="Right"
-                  Orientation="Horizontal">
-        <Button x:Name="btnOpenOutputDir"
-                Width="150"
-                Margin="0,0,12,0"
-                Click="btnOpenOutputDir_Click"
-                Content="Open Output Dir"
+      <StackPanel Grid.Row="2" Margin="0,8,0,8"
+                  HorizontalAlignment="Right" Orientation="Horizontal">
+        <Button x:Name="btnOpenOutputDir" Width="150" Margin="0,0,12,0"
+                Click="btnOpenOutputDir_Click" Content="Open Output Dir"
                 Style="{StaticResource SecondaryButton}" />
-        <Button x:Name="btnClearFiles"
-                Width="110"
-                Margin="0,0,12,0"
-                Click="btnClearFiles_Click"
-                Content="Clear Files"
+        <Button x:Name="btnClearFiles" Width="110" Margin="0,0,12,0"
+                Click="btnClearFiles_Click" Content="Clear Files"
                 Style="{StaticResource SecondaryButton}" />
-        <Button x:Name="btnClear"
-                Width="120"
-                Margin="0,0,12,0"
-                Click="btnClear_Click"
-                Content="Clear Output"
+        <Button x:Name="btnClear" Width="120" Margin="0,0,12,0"
+                Click="btnClear_Click" Content="Clear Output"
                 Style="{StaticResource SecondaryButton}" />
-        <Button x:Name="btnAnalyze"
-                Width="120"
-                Margin="0,0,12,0"
-                Click="btnAnalyze_Click"
-                Content="Analyze"
+        <Button x:Name="btnAnalyze" Width="120" Margin="0,0,12,0"
+                Click="btnAnalyze_Click" Content="Analyze"
                 Style="{StaticResource ModernButton}" />
-        <Button x:Name="btnConvert"
-                Width="120"
-                Click="btnConvert_Click"
-                Content="Convert"
+        <Button x:Name="btnConvert" Width="120"
+                Click="btnConvert_Click" Content="Convert"
                 Style="{StaticResource ModernButton}" />
       </StackPanel>
     </Grid>
 
-    <!--  Footer Section  -->
-    <Border Grid.Row="2"
-            Padding="24,16"
-            Background="White"
-            BorderBrush="#E0E0E0"
+    <Border Grid.Row="2" Padding="24,16"
+            Background="{DynamicResource ThemeSurfaceBrush}"
+            BorderBrush="{DynamicResource ThemeBorderBrush}"
             BorderThickness="0,1,0,0">
       <Grid>
         <Grid.ColumnDefinitions>
@@ -229,15 +159,11 @@
           <ColumnDefinition Width="Auto" />
         </Grid.ColumnDefinitions>
 
-        <!--  Status Text  -->
-        <TextBlock x:Name="txtStatus"
-                   Grid.Column="0"
-                   VerticalAlignment="Center"
-                   FontSize="13"
-                   Foreground="#666666"
+        <TextBlock x:Name="txtStatus" Grid.Column="0"
+                   VerticalAlignment="Center" FontSize="13"
+                   Foreground="{DynamicResource ThemeTextSecondaryBrush}"
                    Text="Ready" />
 
-        <!--  Developed By  -->
         <controls:DeveloperFooter Grid.Column="1" />
       </Grid>
     </Border>

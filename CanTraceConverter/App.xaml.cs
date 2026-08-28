@@ -2,6 +2,7 @@
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Threading;
+using CanTraceConverter.Services;
 
 namespace CanTraceConverter
 {
@@ -12,6 +13,8 @@ namespace CanTraceConverter
             AppDomain.CurrentDomain.UnhandledException += OnUnhandledException;
             DispatcherUnhandledException += OnDispatcherUnhandledException;
             TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
+
+            ThemeManager.Initialize();
 
             base.OnStartup(e);
 
