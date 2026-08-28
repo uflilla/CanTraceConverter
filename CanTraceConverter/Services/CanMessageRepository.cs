@@ -196,6 +196,8 @@ VALUES(@dir, @ts, @raw, @wall, @id, @ext, @rtr, @dlc, @data)";
             }
         }
 
+        public string GetSessionInfoValue(string key) => GetSessionInfo(key);
+
         public List<CanMessage> LoadMessages(double? timeFromMs = null, double? timeToMs = null)
         {
             if (!IsOpen)

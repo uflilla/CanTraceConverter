@@ -113,6 +113,8 @@
     <Compile Include="Services\CanHardwareAvailability.cs" />
     <Compile Include="Services\CanMessageHelper.cs" />
     <Compile Include="Services\CanMessageRepository.cs" />
+    <Compile Include="Services\CanTraceAnalyzer.cs" />
+    <Compile Include="Services\CanTraceLoader.cs" />
     <Compile Include="Services\PeriodicTransmitter.cs" />
     <Compile Include="ViewModels\TraceConverter.cs" />
     <Page Include="Themes\Dark.xaml">

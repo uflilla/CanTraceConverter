@@ -52,16 +52,20 @@ namespace CanTraceConverter
         {
             var dlg = new OpenFileDialog
             {
-                Filter = "Session database|*.db|All files|*.*",
-                Title = "Open session database"
+                Filter = "Session database|*.db|CAN trace text|*.txt|All files|*.*",
+                Title = "Open trace for analysis"
             };
             if (dlg.ShowDialog() != true)
                 return;
 
             try
             {
-                AppLog.Info("Opening analysis for database '{0}'.", dlg.FileName);
-                var analysis = new AnalysisWindow(dlg.FileName, AnalysisSource.Database);
+                var kind = dlg.FileName.EndsWith(".db", StringComparison.OrdinalIgnoreCase)
+                    ? AnalysisSource.Database
+                    : AnalysisSource.TextFile;
+
+                AppLog.Info("Opening analysis for '{0}' ({1}).", dlg.FileName, kind);
+                var analysis = new AnalysisWindow(dlg.FileName, kind);
                 analysis.Owner = this;
                 analysis.ShowDialog();
             }

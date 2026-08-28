@@ -1,12 +1,11 @@
 using System;
 using System.Collections.Generic;
-using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
 using System.Text;
-using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Threading;
 using CanTraceConverter.Models;
 using CanTraceConverter.Services;
 
@@ -15,385 +14,452 @@ namespace CanTraceConverter
     public enum AnalysisSource
     {
         ConvertedText,
+        TextFile,
         Database
     }
 
     public partial class AnalysisWindow : Window
     {
-        private ObservableCollection<CanMessage> _allMessages;
-        private ObservableCollection<CanMessage> _filteredMessages;
-        private string _headerText;
-        private Dictionary<string, int> _canIdFrequency;
-        private Dictionary<string, List<CanMessage>> _messagesByCanId;
-        private CanMessageRepository _repository;
+        private readonly DispatcherTimer _filterTimer;
+        private List<CanMessage> _allMessages = new List<CanMessage>();
+        private List<CanMessage> _filteredMessages = new List<CanMessage>();
+        private Dictionary<string, List<CanMessage>> _messagesByCanId = new Dictionary<string, List<CanMessage>>();
+        private CanTraceLoadResult _loadResult;
+        private string _sourceInput;
+        private AnalysisSource _sourceKind;
+        private string _currentViewMode = "All Messages";
+        private bool _isLoading;
+        private bool _suppressFilterEvents;
 
         public AnalysisWindow(string source, AnalysisSource kind = AnalysisSource.ConvertedText)
         {
             InitializeComponent();
-            InitCollections();
 
-            if (kind == AnalysisSource.Database)
-                LoadFromDatabase(source);
-            else
-                ParseConvertedData(source);
+            _filterTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(350) };
+            _filterTimer.Tick += FilterTimer_Tick;
 
-            InitializeAnalysis();
+            _sourceInput = source;
+            _sourceKind = kind;
+            LoadData(source, kind);
         }
 
-        private void InitCollections()
-        {
-            _allMessages = new ObservableCollection<CanMessage>();
-            _filteredMessages = new ObservableCollection<CanMessage>();
-            _canIdFrequency = new Dictionary<string, int>();
-            _messagesByCanId = new Dictionary<string, List<CanMessage>>();
-        }
-
-        private void LoadFromDatabase(string databasePath)
+        private void LoadData(string source, AnalysisSource kind)
         {
             try
             {
-                _repository = CanMessageRepository.OpenExisting(databasePath);
-                _headerText = _repository.HeaderText;
-                txtFileInfo.Text = _headerText;
+                _isLoading = true;
+                _suppressFilterEvents = true;
 
-                var messages = _repository.LoadMessages();
-                foreach (var msg in messages)
-                    AddMessage(msg);
+                var loaderKind = MapSourceKind(kind);
+                _loadResult = CanTraceLoader.Load(source, loaderKind);
+                _allMessages = _loadResult.Messages ?? new List<CanMessage>();
+                _messagesByCanId = CanTraceAnalyzer.IndexByCanId(_allMessages);
+                _filteredMessages = new List<CanMessage>(_allMessages);
 
-                txtStatus.Text = $"Loaded {messages.Count:N0} messages from database";
+                txtSourceInfo.Text = BuildSourceDescription();
+                txtSourceBadge.Text = _loadResult.SourceLabel;
+                txtFileInfo.Text = _loadResult.HeaderText ?? string.Empty;
+                btnReload.Visibility = _loadResult.SourceKind == AnalysisSourceKind.Database
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
+
+                RefreshUniqueIdList();
+                ApplyFiltersInternal(refreshView: false);
+                RefreshCurrentView();
+                UpdateStatistics();
+                UpdateMessageCount();
+
+                txtStatus.Text = $"Loaded {_allMessages.Count:N0} messages — {_loadResult.SourceLabel}";
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Error loading database: {ex.Message}", "Load Error",
+                AppLog.Error(ex, "Failed to load analysis data.");
+                MessageBox.Show($"Error loading analysis data:\n{ex.Message}", "Load Error",
                     MessageBoxButton.OK, MessageBoxImage.Error);
+                txtStatus.Text = "Failed to load data";
+            }
+            finally
+            {
+                _isLoading = false;
+                _suppressFilterEvents = false;
             }
         }
 
-        private void AddMessage(CanMessage message)
+        private static AnalysisSourceKind MapSourceKind(AnalysisSource kind)
         {
-            _allMessages.Add(message);
-
-            if (_canIdFrequency.ContainsKey(message.CanId))
-                _canIdFrequency[message.CanId]++;
-            else
-                _canIdFrequency[message.CanId] = 1;
-
-            if (!_messagesByCanId.ContainsKey(message.CanId))
-                _messagesByCanId[message.CanId] = new List<CanMessage>();
-            _messagesByCanId[message.CanId].Add(message);
-        }
-
-        private void ParseConvertedData(string data)
-        {
-            try
+            switch (kind)
             {
-                var lines = data.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries);
-                var headerLines = new List<string>();
-                bool headerEnded = false;
-
-                foreach (var line in lines)
-                {
-                    // Collect header information
-                    if (!headerEnded)
-                    {
-                        if (line.Contains("==="))  // Change this - just check for separator line
-                        {
-                            headerEnded = true;
-                            continue;
-                        }
-                        headerLines.Add(line);
-                        continue;
-                    }
-
-                    // Skip separator lines and header line
-                    if (line.Contains("===") || line.Contains("DIR TIME(msec)") || string.IsNullOrWhiteSpace(line))
-                        continue;
-
-                    // Skip footer
-                    if (line.StartsWith("Total number"))
-                        break;
-
-                    // Parse CAN message line
-                    var message = ParseCanMessage(line);
-                    if (message != null)
-                        AddMessage(message);
-                }
-
-                _headerText = string.Join("\n", headerLines);
-                txtFileInfo.Text = _headerText;
-                txtStatus.Text = $"Loaded {_allMessages.Count:N0} messages successfully";
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Error parsing data: {ex.Message}", "Parse Error",
-                    MessageBoxButton.OK, MessageBoxImage.Error);
+                case AnalysisSource.Database:
+                    return AnalysisSourceKind.Database;
+                case AnalysisSource.TextFile:
+                    return AnalysisSourceKind.TextFile;
+                default:
+                    return AnalysisSourceKind.ConvertedText;
             }
         }
 
-        private CanMessage ParseCanMessage(string line)
+        private string BuildSourceDescription()
         {
-            try
-            {
-                // Example line: RX: 012656650  0E0C0000h (1) 05 -- -- -- -- -- -- --
-                var parts = line.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
-                
-                if (parts.Length < 4)
-                    return null;
-
-                var message = new CanMessage
-                {
-                    Direction = parts[0].TrimEnd(':'),
-                    Time = parts[1],
-                    CanId = parts[2],
-                    RawLine = line
-                };
-
-                // Extract DLC from (X) pattern
-                var dlcMatch = Regex.Match(line, @"\((\d+)\)");
-                if (dlcMatch.Success)
-                {
-                    message.Dlc = dlcMatch.Groups[1].Value;
-                }
-
-                // Extract data bytes
-                var dataMatch = Regex.Match(line, @"\((\d+)\)\s+(.+)$");
-                if (dataMatch.Success)
-                {
-                    message.Data = dataMatch.Groups[2].Value.Trim();
-                    message.DataBytes = ParseDataBytes(message.Data);
-                }
-
-                // Parse time for filtering
-                if (double.TryParse(parts[1], System.Globalization.NumberStyles.Float,
-                    System.Globalization.CultureInfo.InvariantCulture, out double timeValue))
-                {
-                    message.TimeValue = timeValue;
-                }
-
-                return message;
-            }
-            catch
-            {
-                return null;
-            }
+            if (!string.IsNullOrWhiteSpace(_loadResult?.SourcePath))
+                return $"{_loadResult.SourceLabel} — {_loadResult.SourcePath}";
+            return _loadResult?.SourceLabel ?? "Converted trace text";
         }
 
-        private byte[] ParseDataBytes(string data)
+        private CanTraceFilterCriteria BuildFilterCriteria()
         {
-            var bytes = new List<byte>();
-            var parts = data.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
-            
-            foreach (var part in parts)
+            return new CanTraceFilterCriteria
             {
-                if (part == "--")
-                    bytes.Add(0);
-                else if (byte.TryParse(part, System.Globalization.NumberStyles.HexNumber, null, out byte b))
-                    bytes.Add(b);
-            }
-
-            return bytes.ToArray();
+                QuickSearch = txtQuickSearch?.Text,
+                Direction = GetComboText(cmbDirection, "All"),
+                CanIdContains = txtCanIdFilter?.Text,
+                Dlc = GetComboText(cmbDlcFilter, "All"),
+                TimeFrom = txtTimeFrom?.Text,
+                TimeTo = txtTimeTo?.Text,
+                DataPattern = txtDataPattern?.Text,
+                SourceIdContains = txtSourceIdFilter?.Text,
+                FunctionCodeByteIndex = cmbFunctionCodeByte?.SelectedIndex ?? 0,
+                FunctionCodeHex = txtFunctionCode?.Text,
+                ExtendedOnly = chkExtendedOnly?.IsChecked == true ? (bool?)true : null,
+                HideRtr = chkHideRtr?.IsChecked == true
+            };
         }
 
-        private void InitializeAnalysis()
+        private static string GetComboText(ComboBox combo, string fallback)
         {
-            // Initialize filtered messages with all messages
-            _filteredMessages = new ObservableCollection<CanMessage>(_allMessages);
-            dgMessages.ItemsSource = _filteredMessages;
+            if (combo?.SelectedItem is ComboBoxItem item && item.Content != null)
+                return item.Content.ToString();
+            return fallback;
+        }
 
-            // Populate unique CAN IDs
-            var uniqueIds = _canIdFrequency.Keys.OrderBy(x => x).ToList();
-            lstUniqueIds.ItemsSource = uniqueIds;
+        private void ApplyFiltersInternal(bool refreshView = true)
+        {
+            if (_isLoading || _allMessages == null)
+                return;
 
-            // Update statistics
+            _filteredMessages = CanTraceAnalyzer.ApplyFilters(_allMessages, BuildFilterCriteria());
+            RefreshUniqueIdList();
+
+            if (refreshView)
+                RefreshCurrentView();
+
             UpdateStatistics();
             UpdateMessageCount();
+        }
+
+        private void RefreshUniqueIdList()
+        {
+            if (lstUniqueIds == null)
+                return;
+
+            var idList = CanTraceAnalyzer.BuildCanIdList(_filteredMessages);
+            lstUniqueIds.ItemsSource = idList;
         }
 
         private void UpdateStatistics()
         {
-            var stats = new StringBuilder();
-            stats.AppendLine($"Total Messages: {_allMessages.Count:N0}");
-            stats.AppendLine($"Filtered: {_filteredMessages.Count:N0}");
-            stats.AppendLine($"Unique CAN IDs: {_canIdFrequency.Count}");
-            
-            var rxCount = _filteredMessages.Count(m => m.Direction == "RX");
-            var txCount = _filteredMessages.Count(m => m.Direction == "TX");
-            stats.AppendLine($"RX Messages: {rxCount:N0}");
-            stats.AppendLine($"TX Messages: {txCount:N0}");
+            if (txtStatistics == null)
+                return;
 
-            if (_filteredMessages.Count > 0)
-            {
-                var minTime = _filteredMessages.Min(m => m.TimeValue);
-                var maxTime = _filteredMessages.Max(m => m.TimeValue);
-                var duration = maxTime - minTime;
-                stats.AppendLine($"Duration: {duration:N1} ms");
-
-                if (duration > 0)
-                {
-                    var msgPerSec = (_filteredMessages.Count * 1000.0) / duration;
-                    stats.AppendLine($"Avg Rate: {msgPerSec:F2} msg/s");
-                }
-            }
-
-            // Most frequent CAN ID
-            if (_canIdFrequency.Count > 0)
-            {
-                var mostFrequent = _canIdFrequency.OrderByDescending(x => x.Value).First();
-                stats.AppendLine($"Most Frequent ID:");
-                stats.AppendLine($"  {mostFrequent.Key}");
-                stats.AppendLine($"  ({mostFrequent.Value:N0} msgs)");
-            }
-
-            txtStatistics.Text = stats.ToString();
+            var stats = CanTraceAnalyzer.ComputeStatistics(_allMessages, _filteredMessages);
+            txtStatistics.Text = stats.ToDisplayText();
         }
 
         private void UpdateMessageCount()
         {
-            txtMessageCount.Text = $"{_filteredMessages.Count:N0} messages displayed (of {_allMessages.Count:N0} total)";
+            if (txtMessageCount == null)
+                return;
+
+            txtMessageCount.Text = $"{_filteredMessages.Count:N0} messages match filters (of {_allMessages.Count:N0} total)";
         }
 
         private void OnFilterChanged(object sender, EventArgs e)
         {
-            if (txtStatus == null) return;  // Add this line
-            // Auto-apply filters as user types (with debouncing in production)
-            // For now, just update the status
-            txtStatus.Text = "Filters modified - click 'Apply Filters' to update view";
+            if (_suppressFilterEvents || _isLoading)
+                return;
+
+            if (chkAutoApply?.IsChecked == true)
+            {
+                _filterTimer.Stop();
+                _filterTimer.Start();
+                txtStatus.Text = "Updating filters...";
+            }
+            else
+            {
+                txtStatus.Text = "Filters modified — click Apply Filters";
+            }
+        }
+
+        private void FilterTimer_Tick(object sender, EventArgs e)
+        {
+            _filterTimer.Stop();
+            ApplyFiltersInternal();
+            txtStatus.Text = $"{_filteredMessages.Count:N0} messages match filters";
         }
 
         private void btnApplyFilters_Click(object sender, RoutedEventArgs e)
         {
-            try
-            {
-                var filtered = _allMessages.AsEnumerable();
-
-                // Direction filter
-                var selectedDir = (cmbDirection.SelectedItem as ComboBoxItem)?.Content.ToString();
-                if (selectedDir != "All")
-                {
-                    filtered = filtered.Where(m => m.Direction == selectedDir);
-                }
-
-                // CAN ID filter
-                if (!string.IsNullOrWhiteSpace(txtCanIdFilter.Text))
-                {
-                    var canIdFilter = txtCanIdFilter.Text.Trim().ToUpper();
-                    filtered = filtered.Where(m => m.CanId.ToUpper().Contains(canIdFilter));
-                }
-
-                // DLC filter
-                var selectedDlc = (cmbDlcFilter.SelectedItem as ComboBoxItem)?.Content.ToString();
-                if (selectedDlc != "All")
-                {
-                    filtered = filtered.Where(m => m.Dlc == selectedDlc);
-                }
-
-                // Time range filter
-                if (!string.IsNullOrWhiteSpace(txtTimeFrom.Text))
-                {
-                    if (double.TryParse(txtTimeFrom.Text, System.Globalization.NumberStyles.Float,
-                        System.Globalization.CultureInfo.InvariantCulture, out double timeFrom))
-                    {
-                        filtered = filtered.Where(m => m.TimeValue >= timeFrom);
-                    }
-                }
-
-                if (!string.IsNullOrWhiteSpace(txtTimeTo.Text))
-                {
-                    if (double.TryParse(txtTimeTo.Text, System.Globalization.NumberStyles.Float,
-                        System.Globalization.CultureInfo.InvariantCulture, out double timeTo))
-                    {
-                        filtered = filtered.Where(m => m.TimeValue <= timeTo);
-                    }
-                }
-
-                // Data pattern filter
-                if (!string.IsNullOrWhiteSpace(txtDataPattern.Text))
-                {
-                    var pattern = txtDataPattern.Text.Trim().ToUpper();
-                    filtered = filtered.Where(m => m.Data.ToUpper().Contains(pattern));
-                }
-
-                // Source/Node ID filter (extract from CAN ID)
-                if (!string.IsNullOrWhiteSpace(txtSourceIdFilter.Text))
-                {
-                    var sourceId = txtSourceIdFilter.Text.Trim().ToUpper();
-                    filtered = filtered.Where(m => ExtractSourceId(m.CanId).Contains(sourceId));
-                }
-
-                // Function code filter
-                if (!string.IsNullOrWhiteSpace(txtFunctionCode.Text))
-                {
-                    var funcCode = txtFunctionCode.Text.Trim().ToUpper();
-                    var byteIndex = cmbFunctionCodeByte.SelectedIndex;
-                    
-                    filtered = filtered.Where(m =>
-                    {
-                        if (m.DataBytes != null && m.DataBytes.Length > byteIndex)
-                        {
-                            var byteValue = m.DataBytes[byteIndex].ToString("X2");
-                            return byteValue.Contains(funcCode);
-                        }
-                        return false;
-                    });
-                }
-
-                // Update filtered collection
-                _filteredMessages.Clear();
-                foreach (var msg in filtered)
-                {
-                    _filteredMessages.Add(msg);
-                }
-
-                UpdateStatistics();
-                UpdateMessageCount();
-                txtStatus.Text = $"Filters applied - {_filteredMessages.Count:N0} messages match";
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Error applying filters: {ex.Message}", "Filter Error",
-                    MessageBoxButton.OK, MessageBoxImage.Error);
-            }
-        }
-
-        private string ExtractSourceId(string canId)
-        {
-            // Simple extraction - take last 2 bytes as source ID
-            // Customize based on your CAN protocol
-            if (canId.Length >= 4)
-            {
-                return canId.Substring(2, 2);
-            }
-            return string.Empty;
+            ApplyFiltersInternal();
+            txtStatus.Text = $"{_filteredMessages.Count:N0} messages match filters";
         }
 
         private void btnClearFilters_Click(object sender, RoutedEventArgs e)
         {
-            // Reset all filters
-            cmbDirection.SelectedIndex = 0;
-            txtCanIdFilter.Clear();
-            cmbDlcFilter.SelectedIndex = 0;
-            txtTimeFrom.Clear();
-            txtTimeTo.Clear();
-            txtDataPattern.Clear();
-            txtSourceIdFilter.Clear();
-            txtFunctionCode.Clear();
-            cmbFunctionCodeByte.SelectedIndex = 0;
-
-            // Reset filtered messages
-            _filteredMessages.Clear();
-            foreach (var msg in _allMessages)
+            _suppressFilterEvents = true;
+            try
             {
-                _filteredMessages.Add(msg);
+                txtQuickSearch.Clear();
+                cmbDirection.SelectedIndex = 0;
+                txtCanIdFilter.Clear();
+                cmbDlcFilter.SelectedIndex = 0;
+                txtTimeFrom.Clear();
+                txtTimeTo.Clear();
+                txtDataPattern.Clear();
+                txtSourceIdFilter.Clear();
+                txtFunctionCode.Clear();
+                cmbFunctionCodeByte.SelectedIndex = 0;
+                chkExtendedOnly.IsChecked = false;
+                chkHideRtr.IsChecked = false;
+            }
+            finally
+            {
+                _suppressFilterEvents = false;
             }
 
-            UpdateStatistics();
-            UpdateMessageCount();
+            ApplyFiltersInternal();
             txtStatus.Text = "All filters cleared";
         }
 
         private void btnClearCanId_Click(object sender, RoutedEventArgs e)
         {
             txtCanIdFilter.Clear();
+        }
+
+        private void lstUniqueIds_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            // Single-click highlights only; double-click applies filter.
+        }
+
+        private void lstUniqueIds_MouseDoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            if (lstUniqueIds.SelectedItem is CanIdListItem item)
+            {
+                txtCanIdFilter.Text = item.CanId;
+                ApplyFiltersInternal();
+                txtStatus.Text = $"Filtered to CAN ID {item.CanId}";
+            }
+        }
+
+        private void cmbViewMode_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (_isLoading || cmbViewMode?.SelectedItem == null)
+                return;
+
+            _currentViewMode = GetComboText(cmbViewMode, "All Messages");
+            panelTimelineInterval.Visibility = _currentViewMode == "Message Timeline"
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+            RefreshCurrentView();
+        }
+
+        private void txtTimelineInterval_TextChanged(object sender, TextChangedEventArgs e)
+        {
+            if (_isLoading || _currentViewMode != "Message Timeline")
+                return;
+
+            if (chkAutoApply?.IsChecked == true)
+            {
+                _filterTimer.Stop();
+                _filterTimer.Start();
+            }
+            else
+            {
+                RefreshCurrentView();
+            }
+        }
+
+        private void RefreshCurrentView()
+        {
+            if (dgMessages == null || _filteredMessages == null)
+                return;
+
+            panelMessageDetail.Visibility = Visibility.Collapsed;
+
+            switch (_currentViewMode)
+            {
+                case "Latest per CAN ID":
+                    ShowLatestPerId();
+                    break;
+                case "Unique CAN IDs":
+                    ShowUniqueCanIds();
+                    break;
+                case "Data Changes":
+                    ShowDataChanges();
+                    break;
+                case "Inter-message Gaps":
+                    ShowGapAnalysis();
+                    break;
+                case "Message Timeline":
+                    ShowMessageTimeline();
+                    break;
+                case "Frequency Analysis":
+                    ShowFrequencyAnalysis();
+                    break;
+                default:
+                    ShowAllMessages();
+                    break;
+            }
+        }
+
+        private void ShowAllMessages()
+        {
+            SetMessageColumns(
+                Col("DIR", "Direction", 60),
+                Col("TIME (msec)", "Time", 100),
+                Col("CAN ID", "CanId", 110),
+                Col("DLC", "Dlc", 50),
+                Col("DATA", "Data", star: true));
+
+            dgMessages.ItemsSource = _filteredMessages;
+            txtMessageCount.Text = $"{_filteredMessages.Count:N0} messages displayed (of {_allMessages.Count:N0} total)";
+        }
+
+        private void ShowLatestPerId()
+        {
+            SetMessageColumns(
+                Col("DIR", "Direction", 60),
+                Col("TIME (msec)", "Time", 100),
+                Col("CAN ID", "CanId", 110),
+                Col("DLC", "Dlc", 50),
+                Col("DATA", "Data", star: true));
+
+            var latest = CanTraceAnalyzer.BuildLatestPerId(_filteredMessages);
+            dgMessages.ItemsSource = latest;
+            txtMessageCount.Text = $"{latest.Count:N0} CAN IDs (latest message each)";
+        }
+
+        private void ShowUniqueCanIds()
+        {
+            SetSummaryColumns();
+            var summaries = CanTraceAnalyzer.BuildUniqueSummaries(_filteredMessages);
+            dgMessages.ItemsSource = summaries;
+            txtMessageCount.Text = $"{summaries.Count:N0} unique CAN IDs";
+        }
+
+        private void ShowDataChanges()
+        {
+            dgMessages.Columns.Clear();
+            dgMessages.Columns.Add(Col("CAN ID", "CanId", 110));
+            dgMessages.Columns.Add(Col("TIME", "Time", 100));
+            dgMessages.Columns.Add(Col("DIR", "Direction", 60));
+            dgMessages.Columns.Add(Col("PREVIOUS DATA", "PreviousData", 220));
+            dgMessages.Columns.Add(Col("NEW DATA", "NewData", star: true));
+
+            var changes = CanTraceAnalyzer.BuildDataChanges(_filteredMessages);
+            dgMessages.ItemsSource = changes;
+            txtMessageCount.Text = $"{changes.Count:N0} data change events";
+        }
+
+        private void ShowGapAnalysis()
+        {
+            dgMessages.Columns.Clear();
+            dgMessages.Columns.Add(Col("CAN ID", "CanId", 110));
+            dgMessages.Columns.Add(Col("MSGS", "MessageCount", 70));
+            dgMessages.Columns.Add(Col("MIN GAP", "MinGapDisplay", 100));
+            dgMessages.Columns.Add(Col("AVG GAP", "AvgGapDisplay", 100));
+            dgMessages.Columns.Add(Col("MAX GAP", "MaxGapDisplay", 100));
+            dgMessages.Columns.Add(Col("EST. RATE", "EstHzDisplay", 100));
+
+            var gaps = CanTraceAnalyzer.BuildGapAnalysis(_filteredMessages);
+            dgMessages.ItemsSource = gaps;
+            txtMessageCount.Text = $"{gaps.Count:N0} CAN IDs with timing data";
+        }
+
+        private void ShowMessageTimeline()
+        {
+            dgMessages.Columns.Clear();
+            dgMessages.Columns.Add(Col("TIME RANGE", "TimeRange", 220));
+            dgMessages.Columns.Add(Col("MESSAGES", "MessageCount", 90));
+            dgMessages.Columns.Add(Col("UNIQUE IDs", "UniqueIds", 90));
+            dgMessages.Columns.Add(Col("RX", "RxCount", 70));
+            dgMessages.Columns.Add(Col("TX", "TxCount", 70));
+
+            var interval = ParseTimelineInterval();
+            var timeline = CanTraceAnalyzer.BuildTimeline(_filteredMessages, interval);
+            dgMessages.ItemsSource = timeline;
+            txtMessageCount.Text = $"{timeline.Count:N0} time buckets ({interval:N0} ms each)";
+        }
+
+        private void ShowFrequencyAnalysis()
+        {
+            dgMessages.Columns.Clear();
+            dgMessages.Columns.Add(Col("CAN ID", "CanId", 110));
+            dgMessages.Columns.Add(Col("COUNT", "TotalCount", 80));
+            dgMessages.Columns.Add(Col("%", "PercentageDisplay", 80));
+            dgMessages.Columns.Add(Col("FREQ (Hz)", "FrequencyDisplay", 100));
+            dgMessages.Columns.Add(Col("DIR", "Direction", 70));
+
+            var frequency = CanTraceAnalyzer.BuildFrequencyAnalysis(_filteredMessages, _filteredMessages.Count);
+            dgMessages.ItemsSource = frequency;
+            txtMessageCount.Text = $"{frequency.Count:N0} CAN IDs analyzed";
+        }
+
+        private double ParseTimelineInterval()
+        {
+            if (double.TryParse(txtTimelineInterval?.Text?.Trim().Replace(',', '.'),
+                System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out double interval) && interval > 0)
+                return interval;
+            return 100;
+        }
+
+        private void SetMessageColumns(params DataGridTextColumn[] columns)
+        {
+            dgMessages.Columns.Clear();
+            foreach (var col in columns)
+                dgMessages.Columns.Add(col);
+        }
+
+        private void SetSummaryColumns()
+        {
+            dgMessages.Columns.Clear();
+            dgMessages.Columns.Add(Col("CAN ID", "CanId", 110));
+            dgMessages.Columns.Add(Col("COUNT", "Count", 70));
+            dgMessages.Columns.Add(Col("DIR", "Direction", 70));
+            dgMessages.Columns.Add(Col("DLC", "Dlc", 50));
+            dgMessages.Columns.Add(Col("FIRST", "FirstTime", 100));
+            dgMessages.Columns.Add(Col("LAST", "LastTime", 100));
+            dgMessages.Columns.Add(Col("AVG INTERVAL", "AvgIntervalDisplay", 110));
+        }
+
+        private static DataGridTextColumn Col(string header, string binding, double width = double.NaN, bool star = false)
+        {
+            var col = new DataGridTextColumn
+            {
+                Header = header,
+                Binding = new System.Windows.Data.Binding(binding)
+            };
+            col.Width = star
+                ? new DataGridLength(1, DataGridLengthUnitType.Star)
+                : new DataGridLength(width);
+            return col;
+        }
+
+        private void dgMessages_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (dgMessages.SelectedItem is CanMessage msg)
+            {
+                panelMessageDetail.Visibility = Visibility.Visible;
+                var wall = msg.WallTime.HasValue ? msg.WallTime.Value.ToString("yyyy-MM-dd HH:mm:ss.fff") : "—";
+                txtMessageDetail.Text =
+                    $"{msg.Direction}  |  {msg.Time} ms  |  {msg.CanId}  |  DLC {msg.Dlc}" + Environment.NewLine +
+                    $"Data: {msg.Data}" + Environment.NewLine +
+                    $"Extended: {(msg.IsExtended ? "Yes" : "No")}  |  RTR: {(msg.IsRtr ? "Yes" : "No")}  |  Wall time: {wall}" + Environment.NewLine +
+                    $"Raw: {msg.RawLine}";
+            }
+            else
+            {
+                panelMessageDetail.Visibility = Visibility.Collapsed;
+            }
         }
 
         private void btnExportFiltered_Click(object sender, RoutedEventArgs e)
@@ -409,207 +475,93 @@ namespace CanTraceConverter
                     FileName = $"filtered_can_trace_{DateTime.Now:yyyyMMdd_HHmmss}.txt"
                 };
 
-                if (dlg.ShowDialog() == true)
-                {
-                    var sb = new StringBuilder();
-                    
-                    // Add header
-                    sb.AppendLine(_headerText);
-                    sb.AppendLine("===============================================================================");
-                    sb.AppendLine("DIR TIME(msec) ID------- DLC DATA-------------------");
-                    sb.AppendLine("===============================================================================");
+                if (dlg.ShowDialog() != true)
+                    return;
 
-                    // Add filtered messages
-                    foreach (var msg in _filteredMessages)
-                    {
-                        sb.AppendLine(msg.RawLine);
-                    }
+                if (dlg.FileName.EndsWith(".csv", StringComparison.OrdinalIgnoreCase))
+                    ExportCsv(dlg.FileName);
+                else
+                    ExportText(dlg.FileName);
 
-                    // Add footer
-                    sb.AppendLine();
-                    sb.AppendLine($"Total number of CAN messages: {_filteredMessages.Count}");
-                    sb.AppendLine($"Exported on: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
-
-                    File.WriteAllText(dlg.FileName, sb.ToString(), Encoding.UTF8);
-                    
-                    txtStatus.Text = $"Exported {_filteredMessages.Count:N0} messages to {dlg.FileName}";
-                    MessageBox.Show($"Successfully exported {_filteredMessages.Count:N0} messages",
-                        "Export Complete", MessageBoxButton.OK, MessageBoxImage.Information);
-                }
+                txtStatus.Text = $"Exported {_filteredMessages.Count:N0} messages to {Path.GetFileName(dlg.FileName)}";
+                MessageBox.Show($"Successfully exported {_filteredMessages.Count:N0} messages.",
+                    "Export Complete", MessageBoxButton.OK, MessageBoxImage.Information);
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Error exporting data: {ex.Message}", "Export Error",
+                AppLog.Error(ex, "Export failed.");
+                MessageBox.Show($"Error exporting data:\n{ex.Message}", "Export Error",
                     MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
-        private void lstUniqueIds_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        private void ExportText(string path)
         {
-            if (lstUniqueIds.SelectedItem != null)
-            {
-                var selectedId = lstUniqueIds.SelectedItem.ToString();
-                txtCanIdFilter.Text = selectedId;
-                btnApplyFilters_Click(null, null);
-            }
+            var sb = new StringBuilder();
+            sb.AppendLine(_loadResult?.HeaderText ?? string.Empty);
+            sb.AppendLine("===============================================================================");
+            sb.AppendLine("DIR TIME(msec) ID------- DLC DATA-------------------");
+            sb.AppendLine("===============================================================================");
+
+            foreach (var msg in _filteredMessages)
+                sb.AppendLine(msg.RawLine ?? string.Empty);
+
+            sb.AppendLine();
+            sb.AppendLine($"Total number of CAN messages: {_filteredMessages.Count}");
+            sb.AppendLine($"Exported on: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+
+            File.WriteAllText(path, sb.ToString(), Encoding.UTF8);
         }
 
-        private void cmbViewMode_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        private void ExportCsv(string path)
         {
-            if (cmbViewMode.SelectedItem == null || _filteredMessages == null)  // Add null check for _filteredMessages
+            var sb = new StringBuilder();
+            sb.AppendLine("Direction,TimeMs,CanId,Dlc,Data,Extended,Rtr,WallTime,RawLine");
+
+            foreach (var msg in _filteredMessages)
+            {
+                sb.Append(Csv(msg.Direction));
+                sb.Append(',');
+                sb.Append(Csv(msg.Time));
+                sb.Append(',');
+                sb.Append(Csv(msg.CanId));
+                sb.Append(',');
+                sb.Append(Csv(msg.Dlc));
+                sb.Append(',');
+                sb.Append(Csv(msg.Data));
+                sb.Append(',');
+                sb.Append(msg.IsExtended ? "1" : "0");
+                sb.Append(',');
+                sb.Append(msg.IsRtr ? "1" : "0");
+                sb.Append(',');
+                sb.Append(Csv(msg.WallTime?.ToString("o") ?? string.Empty));
+                sb.Append(',');
+                sb.AppendLine(Csv(msg.RawLine));
+            }
+
+            File.WriteAllText(path, sb.ToString(), Encoding.UTF8);
+        }
+
+        private static string Csv(string value)
+        {
+            if (string.IsNullOrEmpty(value))
+                return string.Empty;
+            if (value.IndexOfAny(new[] { ',', '"', '\r', '\n' }) >= 0)
+                return "\"" + value.Replace("\"", "\"\"") + "\"";
+            return value;
+        }
+
+        private void btnReload_Click(object sender, RoutedEventArgs e)
+        {
+            if (_loadResult?.SourceKind != AnalysisSourceKind.Database || string.IsNullOrWhiteSpace(_loadResult.SourcePath))
                 return;
 
-            var selectedMode = (cmbViewMode.SelectedItem as ComboBoxItem)?.Content.ToString();
-
-            switch (selectedMode)
-            {
-                case "All Messages":
-                    ShowAllMessages();
-                    break;
-                case "Unique CAN IDs Only":
-                    ShowUniqueCanIds();
-                    break;
-                case "Message Timeline":
-                    ShowMessageTimeline();
-                    break;
-                case "Frequency Analysis":
-                    ShowFrequencyAnalysis();
-                    break;
-            }
-        }
-
-        private void ShowAllMessages()
-        {
-            // Reset columns to default
-            dgMessages.Columns.Clear();
-            dgMessages.Columns.Add(new DataGridTextColumn { Header = "DIR", Binding = new System.Windows.Data.Binding("Direction"), Width = 60 });
-            dgMessages.Columns.Add(new DataGridTextColumn { Header = "TIME (msec)", Binding = new System.Windows.Data.Binding("Time"), Width = 100 });
-            dgMessages.Columns.Add(new DataGridTextColumn { Header = "CAN ID", Binding = new System.Windows.Data.Binding("CanId"), Width = 110 });
-            dgMessages.Columns.Add(new DataGridTextColumn { Header = "DLC", Binding = new System.Windows.Data.Binding("Dlc"), Width = 50 });
-            dgMessages.Columns.Add(new DataGridTextColumn { Header = "DATA", Binding = new System.Windows.Data.Binding("Data"), Width = new DataGridLength(1, DataGridLengthUnitType.Star) });
-
-            dgMessages.ItemsSource = _filteredMessages;
-            UpdateMessageCount();
-        }
-
-        private void ShowUniqueCanIds()
-        {
-            var uniqueMessages = new ObservableCollection<CanMessageSummary>();
-            
-            foreach (var kvp in _messagesByCanId)
-            {
-                var messages = kvp.Value.Where(m => _filteredMessages.Contains(m)).ToList();
-                if (messages.Count > 0)
-                {
-                    var summary = new CanMessageSummary
-                    {
-                        CanId = kvp.Key,
-                        Count = messages.Count,
-                        FirstTime = messages.Min(m => m.TimeValue).ToString(),
-                        LastTime = messages.Max(m => m.TimeValue).ToString(),
-                        Direction = messages.First().Direction,
-                        Dlc = messages.First().Dlc
-                    };
-                    uniqueMessages.Add(summary);
-                }
-            }
-
-            // Change DataGrid columns for summary view
-            dgMessages.Columns.Clear();
-            dgMessages.Columns.Add(new DataGridTextColumn { Header = "CAN ID", Binding = new System.Windows.Data.Binding("CanId"), Width = 120 });
-            dgMessages.Columns.Add(new DataGridTextColumn { Header = "Count", Binding = new System.Windows.Data.Binding("Count"), Width = 80 });
-            dgMessages.Columns.Add(new DataGridTextColumn { Header = "DIR", Binding = new System.Windows.Data.Binding("Direction"), Width = 60 });
-            dgMessages.Columns.Add(new DataGridTextColumn { Header = "DLC", Binding = new System.Windows.Data.Binding("Dlc"), Width = 50 });
-            dgMessages.Columns.Add(new DataGridTextColumn { Header = "First Time", Binding = new System.Windows.Data.Binding("FirstTime"), Width = 120 });
-            dgMessages.Columns.Add(new DataGridTextColumn { Header = "Last Time", Binding = new System.Windows.Data.Binding("LastTime"), Width = 120 });
-
-            dgMessages.ItemsSource = uniqueMessages;
-            txtMessageCount.Text = $"{uniqueMessages.Count} unique CAN IDs";
-        }
-
-        private void ShowMessageTimeline()
-        {
-            // Group messages by time buckets (e.g., 100ms intervals)
-            var timeline = new ObservableCollection<TimelineSummary>();
-            
-            if (_filteredMessages.Count > 0)
-            {
-                var minTime = _filteredMessages.Min(m => m.TimeValue);
-                var maxTime = _filteredMessages.Max(m => m.TimeValue);
-                var interval = 100.0;
-
-                for (double time = minTime; time <= maxTime; time += interval)
-                {
-                    var messagesInInterval = _filteredMessages.Where(m =>
-                        m.TimeValue >= time && m.TimeValue < time + interval).ToList();
-
-                    if (messagesInInterval.Count > 0)
-                    {
-                        var summary = new TimelineSummary
-                        {
-                            TimeRange = $"{time} - {time + interval}",
-                            MessageCount = messagesInInterval.Count,
-                            UniqueIds = messagesInInterval.Select(m => m.CanId).Distinct().Count(),
-                            RxCount = messagesInInterval.Count(m => m.Direction == "RX"),
-                            TxCount = messagesInInterval.Count(m => m.Direction == "TX")
-                        };
-                        timeline.Add(summary);
-                    }
-                }
-            }
-
-            // Change DataGrid columns for timeline view
-            dgMessages.Columns.Clear();
-            dgMessages.Columns.Add(new DataGridTextColumn { Header = "Time Range (ms)", Binding = new System.Windows.Data.Binding("TimeRange"), Width = 200 });
-            dgMessages.Columns.Add(new DataGridTextColumn { Header = "Messages", Binding = new System.Windows.Data.Binding("MessageCount"), Width = 100 });
-            dgMessages.Columns.Add(new DataGridTextColumn { Header = "Unique IDs", Binding = new System.Windows.Data.Binding("UniqueIds"), Width = 100 });
-            dgMessages.Columns.Add(new DataGridTextColumn { Header = "RX", Binding = new System.Windows.Data.Binding("RxCount"), Width = 80 });
-            dgMessages.Columns.Add(new DataGridTextColumn { Header = "TX", Binding = new System.Windows.Data.Binding("TxCount"), Width = 80 });
-
-            dgMessages.ItemsSource = timeline;
-            txtMessageCount.Text = $"{timeline.Count} time intervals";
-        }
-
-        private void ShowFrequencyAnalysis()
-        {
-            var frequency = new ObservableCollection<FrequencyAnalysis>();
-
-            foreach (var kvp in _canIdFrequency.OrderByDescending(x => x.Value))
-            {
-                var messages = _messagesByCanId[kvp.Key].Where(m => _filteredMessages.Contains(m)).ToList();
-                if (messages.Count > 0)
-                {
-                    var minTime = messages.Min(m => m.TimeValue);
-                    var maxTime = messages.Max(m => m.TimeValue);
-                    var duration = (maxTime - minTime) / 1000.0; // in seconds
-
-                    var analysis = new FrequencyAnalysis
-                    {
-                        CanId = kvp.Key,
-                        TotalCount = messages.Count,
-                        Percentage = (_filteredMessages.Count > 0) ? (messages.Count * 100.0 / _filteredMessages.Count) : 0,
-                        FrequencyHz = (duration > 0) ? (messages.Count / duration) : 0,
-                        Direction = messages.First().Direction
-                    };
-                    frequency.Add(analysis);
-                }
-            }
-
-            // Change DataGrid columns for frequency view
-            dgMessages.Columns.Clear();
-            dgMessages.Columns.Add(new DataGridTextColumn { Header = "CAN ID", Binding = new System.Windows.Data.Binding("CanId"), Width = 120 });
-            dgMessages.Columns.Add(new DataGridTextColumn { Header = "Count", Binding = new System.Windows.Data.Binding("TotalCount"), Width = 100 });
-            dgMessages.Columns.Add(new DataGridTextColumn { Header = "Percentage", Binding = new System.Windows.Data.Binding("PercentageDisplay"), Width = 100 });
-            dgMessages.Columns.Add(new DataGridTextColumn { Header = "Frequency (Hz)", Binding = new System.Windows.Data.Binding("FrequencyDisplay"), Width = 120 });
-            dgMessages.Columns.Add(new DataGridTextColumn { Header = "DIR", Binding = new System.Windows.Data.Binding("Direction"), Width = 60 });
-
-            dgMessages.ItemsSource = frequency;
-            txtMessageCount.Text = $"{frequency.Count} CAN IDs analyzed";
+            LoadData(_loadResult.SourcePath, AnalysisSource.Database);
+            txtStatus.Text = "Database reloaded";
         }
 
         private void btnClose_Click(object sender, RoutedEventArgs e)
         {
-            _repository?.Dispose();
             Close();
         }
     }

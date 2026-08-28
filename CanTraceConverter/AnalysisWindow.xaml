@@ -27,17 +27,34 @@
             Background="{DynamicResource ThemeSurfaceBrush}"
             BorderBrush="{DynamicResource ThemeBorderBrush}"
             BorderThickness="0,0,0,1">
-      <StackPanel VerticalAlignment="Center">
-        <TextBlock FontSize="20" FontWeight="SemiBold" Text="CAN Trace Analysis" />
-        <TextBlock Margin="0,4,0,0" FontSize="13"
-                   Foreground="{DynamicResource ThemeTextSecondaryBrush}"
-                   Text="Advanced filtering and analysis of CAN messages" />
-      </StackPanel>
+      <Grid>
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*" />
+          <ColumnDefinition Width="Auto" />
+        </Grid.ColumnDefinitions>
+        <StackPanel Grid.Column="0" VerticalAlignment="Center">
+          <TextBlock FontSize="20" FontWeight="SemiBold" Text="CAN Trace Analysis" />
+          <TextBlock x:Name="txtSourceInfo" Margin="0,4,0,0" FontSize="13"
+                     Foreground="{DynamicResource ThemeTextSecondaryBrush}"
+                     Text="Loading trace data..." TextWrapping="Wrap" />
+        </StackPanel>
+        <StackPanel Grid.Column="1" VerticalAlignment="Center" Orientation="Horizontal">
+          <Border x:Name="badgeSource" Padding="10,4" Margin="0,0,8,0"
+                  Background="{DynamicResource ThemeSurfaceAltBrush}"
+                  BorderBrush="{DynamicResource ThemeBorderBrush}"
+                  BorderThickness="1" CornerRadius="12">
+            <TextBlock x:Name="txtSourceBadge" FontSize="12" FontWeight="SemiBold" Text="Source" />
+          </Border>
+          <Button x:Name="btnReload" MinWidth="90" Click="btnReload_Click"
+                  Content="Reload" Style="{StaticResource SecondaryButton}"
+                  ToolTip="Reload data from database file" Visibility="Collapsed" />
+        </StackPanel>
+      </Grid>
     </Border>
 
     <Grid Grid.Row="1" Margin="24,20,24,0">
       <Grid.ColumnDefinitions>
-        <ColumnDefinition Width="350" />
+        <ColumnDefinition Width="380" />
         <ColumnDefinition Width="*" />
       </Grid.ColumnDefinitions>
 
@@ -50,7 +67,16 @@
           <StackPanel Margin="16">
             <TextBlock Margin="0,0,0,8" FontSize="15" FontWeight="SemiBold" Text="Filters" />
 
-            <TextBlock Margin="0,8,0,4" FontWeight="Medium"
+            <CheckBox x:Name="chkAutoApply" Margin="0,0,0,8" Content="Apply filters automatically"
+                      IsChecked="True" Checked="OnFilterChanged" Unchecked="OnFilterChanged" />
+
+            <TextBlock Margin="0,4,0,4" FontWeight="Medium"
+                       Foreground="{DynamicResource ThemeTextSecondaryBrush}" Text="Quick search:" />
+            <TextBox x:Name="txtQuickSearch" Style="{StaticResource ModernTextBox}"
+                     TextChanged="OnFilterChanged"
+                     ToolTip="Search CAN ID, data, direction, or raw line" />
+
+            <TextBlock Margin="0,12,0,4" FontWeight="Medium"
                        Foreground="{DynamicResource ThemeTextSecondaryBrush}" Text="Direction:" />
             <ComboBox x:Name="cmbDirection" SelectionChanged="OnFilterChanged"
                       Style="{StaticResource ModernComboBox}">
@@ -69,7 +95,7 @@
               <TextBox x:Name="txtCanIdFilter" Grid.Column="0"
                        Style="{StaticResource ModernTextBox}"
                        TextChanged="OnFilterChanged"
-                       ToolTip="Enter CAN ID in hex (e.g., 0B060602)" />
+                       ToolTip="Enter CAN ID in hex (e.g., 321 or 0E0C0000)" />
               <Button x:Name="btnClearCanId" Grid.Column="1" Margin="4,0,0,0"
                       Padding="8,6" Click="btnClearCanId_Click"
                       Content="✕" Style="{StaticResource SecondaryButton}" />
@@ -146,6 +172,13 @@
                        TextChanged="OnFilterChanged" ToolTip="Value (hex)" />
             </Grid>
 
+            <StackPanel Margin="0,12,0,0" Orientation="Vertical">
+              <CheckBox x:Name="chkExtendedOnly" Content="Extended IDs only"
+                        Checked="OnFilterChanged" Unchecked="OnFilterChanged" />
+              <CheckBox x:Name="chkHideRtr" Margin="0,6,0,0" Content="Hide RTR messages"
+                        Checked="OnFilterChanged" Unchecked="OnFilterChanged" />
+            </StackPanel>
+
             <StackPanel Margin="0,20,0,0" Orientation="Vertical">
               <Button Click="btnApplyFilters_Click" Content="Apply Filters"
                       Style="{StaticResource ModernButton}" />
@@ -161,18 +194,21 @@
                     BorderBrush="{DynamicResource ThemeBorderBrush}"
                     BorderThickness="1"
                     CornerRadius="4">
-              <TextBlock x:Name="txtStatistics" FontFamily="Consolas" FontSize="11"
+              <TextBlock x:Name="txtStatistics" FontFamily="Consolas" FontSize="12"
                          Foreground="{DynamicResource ThemeTextSecondaryBrush}" />
             </Border>
 
-            <TextBlock Margin="0,16,0,8" FontWeight="Medium"
-                       Foreground="{DynamicResource ThemeTextSecondaryBrush}" Text="Unique CAN IDs:" />
-            <ListBox x:Name="lstUniqueIds" Height="150"
+            <TextBlock Margin="0,16,0,4" FontWeight="Medium"
+                       Foreground="{DynamicResource ThemeTextSecondaryBrush}"
+                       Text="Unique CAN IDs (click to filter):" />
+            <ListBox x:Name="lstUniqueIds" Height="160"
+                     DisplayMemberPath="DisplayText"
+                     MouseDoubleClick="lstUniqueIds_MouseDoubleClick"
+                     SelectionChanged="lstUniqueIds_SelectionChanged"
                      Style="{StaticResource ModernListBox}"
-                     FontFamily="Consolas" FontSize="11"
-                     SelectionChanged="lstUniqueIds_SelectionChanged" />
+                     FontFamily="Consolas" FontSize="11" />
 
-            <TextBlock Margin="0,16,0,8" FontSize="15" FontWeight="SemiBold" Text="File Information" />
+            <TextBlock Margin="0,16,0,8" FontSize="15" FontWeight="SemiBold" Text="Session / File Info" />
             <Border Padding="12"
                     Background="{DynamicResource ThemeSurfaceAltBrush}"
                     BorderBrush="{DynamicResource ThemeBorderBrush}"
@@ -196,6 +232,7 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
           </Grid.RowDefinitions>
 
           <Border Grid.Row="0" Padding="16,12"
@@ -210,16 +247,29 @@
               </Grid.ColumnDefinitions>
 
               <TextBlock Grid.Column="0" VerticalAlignment="Center"
-                         FontWeight="SemiBold" Text="CAN Messages" />
+                         FontWeight="SemiBold" Text="Analysis View" />
 
               <StackPanel Grid.Column="2" HorizontalAlignment="Right" Orientation="Horizontal">
+                <StackPanel x:Name="panelTimelineInterval" Margin="0,0,12,0"
+                            VerticalAlignment="Center" Orientation="Horizontal"
+                            Visibility="Collapsed">
+                  <TextBlock Margin="0,0,6,0" VerticalAlignment="Center"
+                             Foreground="{DynamicResource ThemeTextSecondaryBrush}"
+                             Text="Bucket (ms):" />
+                  <TextBox x:Name="txtTimelineInterval" Width="70"
+                           Style="{StaticResource ModernTextBox}"
+                           Text="100" TextChanged="txtTimelineInterval_TextChanged" />
+                </StackPanel>
                 <TextBlock Margin="0,0,8,0" VerticalAlignment="Center"
                            Foreground="{DynamicResource ThemeTextSecondaryBrush}" Text="View Mode:" />
-                <ComboBox x:Name="cmbViewMode" Width="180"
+                <ComboBox x:Name="cmbViewMode" Width="210"
                           SelectionChanged="cmbViewMode_SelectionChanged"
                           Style="{StaticResource ModernComboBox}">
                   <ComboBoxItem Content="All Messages" IsSelected="True" />
-                  <ComboBoxItem Content="Unique CAN IDs Only" />
+                  <ComboBoxItem Content="Latest per CAN ID" />
+                  <ComboBoxItem Content="Unique CAN IDs" />
+                  <ComboBoxItem Content="Data Changes" />
+                  <ComboBoxItem Content="Inter-message Gaps" />
                   <ComboBoxItem Content="Message Timeline" />
                   <ComboBoxItem Content="Frequency Analysis" />
                 </ComboBox>
@@ -227,7 +277,8 @@
             </Grid>
           </Border>
 
-          <DataGrid x:Name="dgMessages" Grid.Row="1" FontSize="16"
+          <DataGrid x:Name="dgMessages" Grid.Row="1" FontSize="14"
+                    SelectionChanged="dgMessages_SelectionChanged"
                     Style="{StaticResource ModernDataGrid}">
             <DataGrid.Columns>
               <DataGridTextColumn Width="60" Binding="{Binding Direction}" Header="DIR" />
@@ -238,7 +289,20 @@
             </DataGrid.Columns>
           </DataGrid>
 
-          <Border Grid.Row="2" Padding="16,8"
+          <Border x:Name="panelMessageDetail" Grid.Row="2" Padding="16,10"
+                  Background="{DynamicResource ThemeSurfaceAltBrush}"
+                  BorderBrush="{DynamicResource ThemeBorderBrush}"
+                  BorderThickness="0,1,0,0" Visibility="Collapsed">
+            <StackPanel>
+              <TextBlock FontWeight="SemiBold" Text="Selected Message" />
+              <TextBlock x:Name="txtMessageDetail" Margin="0,4,0,0"
+                         FontFamily="Consolas" FontSize="12"
+                         Foreground="{DynamicResource ThemeTextSecondaryBrush}"
+                         TextWrapping="Wrap" />
+            </StackPanel>
+          </Border>
+
+          <Border Grid.Row="3" Padding="16,8"
                   Background="{DynamicResource ThemeSurfaceAltBrush}"
                   BorderBrush="{DynamicResource ThemeBorderBrush}"
                   BorderThickness="0,1,0,0">

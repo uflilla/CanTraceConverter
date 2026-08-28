@@ -31,7 +31,7 @@
       <Button Margin="0,0,0,12" MinWidth="320" Click="BtnConverter_Click"
               Content="Trace Converter (.ucantrc)" Style="{StaticResource SecondaryButton}" />
       <Button Margin="0,0,0,12" MinWidth="320" Click="BtnAnalyzeDb_Click"
-              Content="Analyze Session Database" Style="{StaticResource SecondaryButton}" />
+              Content="Analyze Trace (Database or Text)" Style="{StaticResource SecondaryButton}" />
     </StackPanel>
 
     <controls:DeveloperFooter Grid.Row="2" />

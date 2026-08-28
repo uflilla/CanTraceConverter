@@ -26,6 +26,42 @@ namespace CanTraceConverter.Models
         public string Dlc { get; set; }
         public string FirstTime { get; set; }
         public string LastTime { get; set; }
+        public double AvgIntervalMs { get; set; }
+
+        public string AvgIntervalDisplay => AvgIntervalMs > 0 ? $"{AvgIntervalMs:F2} ms" : "—";
+    }
+
+    public class CanIdListItem
+    {
+        public string CanId { get; set; }
+        public int Count { get; set; }
+
+        public string DisplayText => $"{CanId}  ({Count:N0})";
+    }
+
+    public class DataChangeRow
+    {
+        public string CanId { get; set; }
+        public string Time { get; set; }
+        public double TimeValue { get; set; }
+        public string PreviousData { get; set; }
+        public string NewData { get; set; }
+        public string Direction { get; set; }
+    }
+
+    public class GapAnalysisRow
+    {
+        public string CanId { get; set; }
+        public int MessageCount { get; set; }
+        public double MinGapMs { get; set; }
+        public double MaxGapMs { get; set; }
+        public double AvgGapMs { get; set; }
+        public double EstimatedHz { get; set; }
+
+        public string MinGapDisplay => $"{MinGapMs:F2} ms";
+        public string MaxGapDisplay => $"{MaxGapMs:F2} ms";
+        public string AvgGapDisplay => $"{AvgGapMs:F2} ms";
+        public string EstHzDisplay => EstimatedHz > 0 ? $"{EstimatedHz:F2} Hz" : "—";
     }
 
     public class TimelineSummary
