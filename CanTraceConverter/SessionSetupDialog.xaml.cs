@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Threading;
 using CanTraceConverter.Models;
 using CanTraceConverter.Services;
 
@@ -11,6 +12,7 @@ namespace CanTraceConverter
     public partial class SessionSetupDialog : Window
     {
         public SessionConfig SessionConfig { get; private set; }
+        private int _autoRetryCount;
 
         public SessionSetupDialog()
         {
@@ -23,11 +25,16 @@ namespace CanTraceConverter
 
         private void OnLoaded(object sender, RoutedEventArgs e)
         {
-            RefreshDevices();
+            RefreshDevices(scheduleRetry: true);
             UpdatePreview();
         }
 
-        private void RefreshDevices()
+        private void BtnRefreshDevices_Click(object sender, RoutedEventArgs e)
+        {
+            RefreshDevices(scheduleRetry: false);
+        }
+
+        private void RefreshDevices(bool scheduleRetry)
         {
             DeviceEnumerationResult scan;
             try
@@ -54,6 +61,10 @@ namespace CanTraceConverter
             }
 
             var devices = new List<CanDeviceItem>(scan.Devices ?? Array.Empty<CanDeviceItem>());
+            bool onlyFallback = devices.Count == 0
+                || (devices.Count == 1 && devices[0].DeviceNumber == 255 && string.IsNullOrEmpty(devices[0].Label) == false
+                    && devices[0].Label.IndexOf("auto-detect", StringComparison.OrdinalIgnoreCase) >= 0);
+
             if (devices.Count == 0)
             {
                 devices.Add(new CanDeviceItem
@@ -62,11 +73,21 @@ namespace CanTraceConverter
                     SerialNumber = 0,
                     Label = "First available device (auto-detect)"
                 });
+                onlyFallback = true;
             }
 
+            byte? previousDevice = (cmbDevice.SelectedItem as CanDeviceItem)?.DeviceNumber;
             cmbDevice.ItemsSource = null;
             cmbDevice.ItemsSource = devices;
-            cmbDevice.SelectedIndex = 0;
+
+            int selectedIndex = 0;
+            if (previousDevice.HasValue)
+            {
+                int idx = devices.FindIndex(d => d.DeviceNumber == previousDevice.Value);
+                if (idx >= 0)
+                    selectedIndex = idx;
+            }
+            cmbDevice.SelectedIndex = selectedIndex;
 
             if (!string.IsNullOrWhiteSpace(scan.Warning))
             {
@@ -74,9 +95,29 @@ namespace CanTraceConverter
                 txtDeviceWarning.Text = scan.Warning;
                 borderDeviceWarning.Visibility = Visibility.Visible;
             }
+            else if (onlyFallback)
+            {
+                txtDeviceWarning.Text = "No USB-CAN devices detected yet. Click Refresh after connecting hardware.";
+                borderDeviceWarning.Visibility = Visibility.Visible;
+            }
             else
             {
                 borderDeviceWarning.Visibility = Visibility.Collapsed;
+            }
+
+            // Cold-start USB/driver readiness: retry a couple of times automatically.
+            if (scheduleRetry && onlyFallback && _autoRetryCount < 3)
+            {
+                _autoRetryCount++;
+                var delayMs = 250 * _autoRetryCount;
+                var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(delayMs) };
+                timer.Tick += (s, __) =>
+                {
+                    timer.Stop();
+                    if (IsLoaded)
+                        RefreshDevices(scheduleRetry: true);
+                };
+                timer.Start();
             }
         }
 

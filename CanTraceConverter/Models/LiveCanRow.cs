@@ -8,6 +8,7 @@ namespace CanTraceConverter.Models
         private string _direction;
         private double _timestampMs;
         private string _timeDisplay;
+        private string _periodDisplay = "-";
         private byte _dlc;
         private string _data;
         private int _messageCount;
@@ -32,6 +33,12 @@ namespace CanTraceConverter.Models
         {
             get => _timeDisplay;
             set { _timeDisplay = value; OnPropertyChanged(); }
+        }
+
+        public string PeriodDisplay
+        {
+            get => _periodDisplay;
+            set { _periodDisplay = value; OnPropertyChanged(); }
         }
 
         public byte Dlc

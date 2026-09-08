@@ -54,6 +54,7 @@ namespace CanTraceConverter
 
             _bus.MessageReceived += OnMessageReceived;
             _bus.StatusChanged += status => RunOnUiThread(() => txtStatus.Text = status);
+            _bus.CanErrorStatusChanged += OnCanErrorStatusChanged;
             _bus.Disconnected += () => RunOnUiThread(OnDisconnected);
 
             Loaded += (_, __) => StartSession();
@@ -151,6 +152,8 @@ namespace CanTraceConverter
                 txtConnectionStatus.Foreground = System.Windows.Media.Brushes.Green;
                 txtLogPath.Text = Path.GetFileName(_repository.DatabasePath);
                 btnReconnect.Visibility = Visibility.Collapsed;
+                txtBusError.Text = string.Empty;
+                txtBusError.Visibility = Visibility.Collapsed;
                 UpdateSendPanelState();
             }
             catch (Exception ex)
@@ -209,6 +212,18 @@ namespace CanTraceConverter
                 }
 
                 row.Direction = record.Direction;
+                if (row.MessageCount > 0)
+                {
+                    double periodMs = record.TimestampMs - row.TimestampMs;
+                    if (periodMs < 0)
+                        periodMs = 0;
+                    row.PeriodDisplay = CanMessageHelper.FormatTime(periodMs);
+                }
+                else
+                {
+                    row.PeriodDisplay = "-";
+                }
+
                 row.TimestampMs = record.TimestampMs;
                 row.TimeDisplay = CanMessageHelper.FormatTime(record.TimestampMs);
                 row.Dlc = record.Dlc;
@@ -216,6 +231,25 @@ namespace CanTraceConverter
                 row.MessageCount++;
             }
             _dirty = true;
+        }
+
+        private void OnCanErrorStatusChanged(string message)
+        {
+            RunOnUiThread(() =>
+            {
+                if (_isClosing)
+                    return;
+
+                if (string.IsNullOrWhiteSpace(message))
+                {
+                    txtBusError.Text = string.Empty;
+                    txtBusError.Visibility = Visibility.Collapsed;
+                    return;
+                }
+
+                txtBusError.Text = "CAN Error: " + message;
+                txtBusError.Visibility = Visibility.Visible;
+            });
         }
 
         private void UiTimer_Tick(object sender, EventArgs e)
@@ -240,6 +274,8 @@ namespace CanTraceConverter
             txtConnectionStatus.Text = "Disconnected";
             txtConnectionStatus.Foreground = System.Windows.Media.Brushes.OrangeRed;
             btnReconnect.Visibility = Visibility.Visible;
+            txtBusError.Text = string.Empty;
+            txtBusError.Visibility = Visibility.Collapsed;
             UpdateSendPanelState();
             StopAllCyclicInternal();
         }
@@ -497,6 +533,7 @@ namespace CanTraceConverter
         {
             try
             {
+                // Ensure no TX continues across reconnect.
                 StopAllCyclicInternal();
                 _bus.Disconnect();
                 StartSession();
@@ -509,13 +546,30 @@ namespace CanTraceConverter
 
         private void Window_Closing(object sender, System.ComponentModel.CancelEventArgs e)
         {
+            if (_isClosing)
+                return;
+
             _isClosing = true;
-            _bus.MessageReceived -= OnMessageReceived;
-            _uiTimer.Stop();
-            StopAllCyclicInternal();
+            _loggingEnabled = false;
+
+            try { _uiTimer.Stop(); } catch { /* ignore */ }
+
+            // 1) Stop all software cyclic TX threads before touching the bus.
+            try { StopAllCyclicInternal(); } catch { /* ignore */ }
+
+            try { _bus.MessageReceived -= OnMessageReceived; } catch { /* ignore */ }
+            try { _bus.CanErrorStatusChanged -= OnCanErrorStatusChanged; } catch { /* ignore */ }
+
+            // 2) Disconnect CAN: stops firmware cyclic + releases channel/hardware lease.
             try { _bus.Dispose(); } catch { /* ignore */ }
+
+            // 3) Flush and close SQLite so no writer thread remains.
+            try { _repository.Flush(); } catch (Exception ex) { AppLog.Warn(ex, "Final session flush failed."); }
             try { _repository.Dispose(); } catch { /* ignore */ }
+
             try { _transmitManager.Dispose(); } catch { /* ignore */ }
+
+            AppLog.Info("Monitor window closed; CAN session resources released.");
         }
     }
 }

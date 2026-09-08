@@ -47,18 +47,22 @@ namespace CanTraceConverter.Services
         private void TransmitLoop()
         {
             // Request 1 ms timer resolution from Windows multimedia timer API.
-            NativeMethods.TimeBeginPeriod(1);
+            NativeMethods.timeBeginPeriod(1);
             try
             {
                 var sw = System.Diagnostics.Stopwatch.StartNew();
                 long nextTick = 0;
 
-                while (_running && _bus != null && _bus.IsConnected)
+                while (_running)
                 {
+                    var bus = _bus;
+                    if (bus == null || !bus.IsConnected)
+                        break;
+
                     long elapsed = sw.ElapsedMilliseconds;
                     if (elapsed >= nextTick)
                     {
-                        _bus.SendOnce(_canId, _dlc, _data, _extended, false);
+                        bus.SendOnce(_canId, _dlc, _data, _extended, false);
                         nextTick += _intervalMs;
                     }
                     else
@@ -71,15 +75,22 @@ namespace CanTraceConverter.Services
             }
             finally
             {
-                NativeMethods.TimeEndPeriod(1);
+                NativeMethods.timeEndPeriod(1);
             }
         }
 
         public void Stop()
         {
             _running = false;
-            _thread?.Join(500);
+            // Drop bus reference first so an in-flight loop iteration cannot TX.
+            _bus = null;
+
+            var thread = _thread;
             _thread = null;
+            if (thread != null && thread.IsAlive && thread != Thread.CurrentThread)
+            {
+                try { thread.Join(2000); } catch { /* ignore */ }
+            }
         }
 
         public void Dispose() => Stop();
@@ -88,9 +99,9 @@ namespace CanTraceConverter.Services
     internal static class NativeMethods
     {
         [System.Runtime.InteropServices.DllImport("winmm.dll")]
-        internal static extern uint TimeBeginPeriod(uint uPeriod);
+        internal static extern uint timeBeginPeriod(uint uPeriod);
 
         [System.Runtime.InteropServices.DllImport("winmm.dll")]
-        internal static extern uint TimeEndPeriod(uint uPeriod);
+        internal static extern uint timeEndPeriod(uint uPeriod);
     }
 }

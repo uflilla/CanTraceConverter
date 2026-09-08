@@ -110,6 +110,7 @@
     <Compile Include="Services\TransmitListManager.cs" />
     <Compile Include="Services\ThemeManager.cs" />
     <Compile Include="Services\CanBusService.cs" />
+    <Compile Include="Services\UsbCanHardwareManager.cs" />
     <Compile Include="Services\CanHardwareAvailability.cs" />
     <Compile Include="Services\CanMessageHelper.cs" />
     <Compile Include="Services\CanMessageRepository.cs" />

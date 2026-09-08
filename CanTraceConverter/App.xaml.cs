@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Threading;
@@ -8,13 +9,17 @@ namespace CanTraceConverter
 {
     public partial class App : Application
     {
+        private static int _shutdownCleanupDone;
+
         protected override void OnStartup(StartupEventArgs e)
         {
             AppLog.Initialize();
 
             AppDomain.CurrentDomain.UnhandledException += OnUnhandledException;
+            AppDomain.CurrentDomain.ProcessExit += OnProcessExit;
             DispatcherUnhandledException += OnDispatcherUnhandledException;
             TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
+            SessionEnding += OnSessionEnding;
 
             AppLog.Info("USB-CAN Studio starting.");
             ThemeManager.Initialize();
@@ -38,9 +43,41 @@ namespace CanTraceConverter
 
         protected override void OnExit(ExitEventArgs e)
         {
+            ForceReleaseCanResources("OnExit");
             AppLog.Info("Application exiting with code {0}.", e.ApplicationExitCode);
             AppLog.Shutdown();
             base.OnExit(e);
+        }
+
+        private void OnSessionEnding(object sender, SessionEndingCancelEventArgs e)
+        {
+            ForceReleaseCanResources("SessionEnding");
+        }
+
+        private static void OnProcessExit(object sender, EventArgs e)
+        {
+            // Last-chance cleanup if the process is terminating.
+            ForceReleaseCanResources("ProcessExit");
+        }
+
+        /// <summary>
+        /// Stops all cyclic TX and releases USB-CAN hardware so other apps can use the device.
+        /// Safe to call multiple times.
+        /// </summary>
+        internal static void ForceReleaseCanResources(string reason)
+        {
+            if (Interlocked.Exchange(ref _shutdownCleanupDone, 1) != 0)
+                return;
+
+            try
+            {
+                AppLog.Info("Releasing CAN resources ({0}).", reason);
+                UsbCanHardwareManager.ReleaseAll();
+            }
+            catch (Exception ex)
+            {
+                try { AppLog.Warn(ex, "CAN resource release failed."); } catch { /* logging may be down */ }
+            }
         }
 
         private static void OnUnhandledException(object sender, UnhandledExceptionEventArgs e)
@@ -48,6 +85,8 @@ namespace CanTraceConverter
             if (e.ExceptionObject is Exception ex)
             {
                 AppLog.Error(ex, "Unhandled AppDomain exception. Terminating={0}", e.IsTerminating);
+                if (e.IsTerminating)
+                    ForceReleaseCanResources("UnhandledException");
                 ShowFatalError("Unexpected error", ex);
             }
         }

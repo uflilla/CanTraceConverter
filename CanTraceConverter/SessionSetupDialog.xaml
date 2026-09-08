@@ -29,8 +29,16 @@
         <TextBox x:Name="txtTitle" Margin="0,0,0,12" Style="{StaticResource ModernTextBox}" />
 
         <TextBlock Margin="0,0,0,4" FontWeight="Medium" Text="USB-CAN Device" />
-        <ComboBox x:Name="cmbDevice" Margin="0,0,0,8"
-                  Style="{StaticResource ModernComboBox}" DisplayMemberPath="DisplayName" />
+        <Grid Margin="0,0,0,8">
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="Auto" />
+          </Grid.ColumnDefinitions>
+          <ComboBox x:Name="cmbDevice" Grid.Column="0" Margin="0,0,8,0"
+                    Style="{StaticResource ModernComboBox}" DisplayMemberPath="DisplayName" />
+          <Button Grid.Column="1" MinWidth="100" Click="BtnRefreshDevices_Click"
+                  Content="Refresh" Style="{StaticResource SecondaryButton}" />
+        </Grid>
 
         <Border x:Name="borderDeviceWarning" Margin="0,0,0,12" Padding="10,8"
                 Background="{DynamicResource ThemeWarningBackgroundBrush}"

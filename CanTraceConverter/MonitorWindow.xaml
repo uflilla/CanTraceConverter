@@ -103,6 +103,7 @@
             <DataGridTextColumn Header="DLC" Binding="{Binding Dlc}" Width="45" />
             <DataGridTextColumn Header="DATA" Binding="{Binding Data}" Width="*" />
             <DataGridTextColumn Header="TIME (ms)" Binding="{Binding TimeDisplay}" Width="100" />
+            <DataGridTextColumn Header="PERIOD (ms)" Binding="{Binding PeriodDisplay}" Width="100" />
             <DataGridTextColumn Header="COUNT" Binding="{Binding MessageCount}" Width="70" />
           </DataGrid.Columns>
         </DataGrid>
@@ -290,8 +291,14 @@
         <Border Margin="0,14,0,0" Padding="12,10"
                 Background="{DynamicResource ThemeSurfaceAltBrush}"
                 BorderBrush="{DynamicResource ThemeBorderBrush}" BorderThickness="1" CornerRadius="4">
-          <TextBlock x:Name="txtStatus" MinHeight="20" Text="Ready"
-                     TextWrapping="Wrap" Foreground="{DynamicResource ThemeTextSecondaryBrush}" FontSize="13" />
+          <StackPanel>
+            <TextBlock x:Name="txtStatus" MinHeight="20" Text="Ready"
+                       TextWrapping="Wrap" Foreground="{DynamicResource ThemeTextSecondaryBrush}" FontSize="13" />
+            <TextBlock x:Name="txtBusError" Margin="0,6,0,0" MinHeight="20"
+                       TextWrapping="Wrap" FontSize="13" FontWeight="SemiBold"
+                       Foreground="{DynamicResource ThemeErrorTextBrush}"
+                       Visibility="Collapsed" />
+          </StackPanel>
         </Border>
 
         <controls:DeveloperFooter Margin="0,12,0,0" />

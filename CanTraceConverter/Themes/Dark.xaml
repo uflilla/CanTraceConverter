@@ -18,6 +18,7 @@
   <SolidColorBrush x:Key="ThemeWarningBackgroundBrush" Color="#3D2E1A" />
   <SolidColorBrush x:Key="ThemeWarningBorderBrush" Color="#8B6914" />
   <SolidColorBrush x:Key="ThemeWarningTextBrush" Color="#FFB86C" />
+  <SolidColorBrush x:Key="ThemeErrorTextBrush" Color="#FF6B6B" />
   <SolidColorBrush x:Key="ThemeSelectionBackgroundBrush" Color="#094771" />
   <SolidColorBrush x:Key="ThemeSelectionForegroundBrush" Color="#FFFFFF" />
   <SolidColorBrush x:Key="ThemePopupBackgroundBrush" Color="#252526" />

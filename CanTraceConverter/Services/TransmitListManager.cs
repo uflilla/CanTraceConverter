@@ -146,16 +146,8 @@ namespace CanTraceConverter.Services
                 _cyclics.Clear();
             }
 
-            _bus?.StopPeriodicFirmware();
-        }
-
-        public void SetAllRunningState(IEnumerable<CanTransmitRow> rows, bool running)
-        {
-            if (rows == null)
-                return;
-
-            foreach (var row in rows)
-                row.IsCyclicRunning = running;
+            // Always clear device-side cyclic TX if it was started.
+            try { _bus?.StopPeriodicFirmware(); } catch { /* ignore */ }
         }
 
         public void Dispose()

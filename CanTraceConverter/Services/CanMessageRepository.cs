@@ -22,6 +22,7 @@ namespace CanTraceConverter.Services
         public string DatabasePath { get; private set; }
         public string HeaderText => _headerText;
         public long TotalWritten => Interlocked.Read(ref _totalWritten);
+        public int PendingCount => _pending.Count;
         public bool IsOpen => _connection != null;
 
         public void Open(SessionConfig config, string headerText)
@@ -97,9 +98,34 @@ CREATE INDEX IF NOT EXISTS idx_can_messages_can_id ON can_messages(can_id);";
 
         public void Flush()
         {
+            FlushUntilEmpty(TimeSpan.FromSeconds(5));
+        }
+
+        /// <summary>
+        /// Writes every queued message. Retries until the queue is empty or the timeout elapses.
+        /// </summary>
+        public bool FlushUntilEmpty(TimeSpan timeout)
+        {
             if (!IsOpen)
-                return;
-            FlushBatch(int.MaxValue);
+                return true;
+
+            var deadline = DateTime.UtcNow + timeout;
+            while (!_pending.IsEmpty)
+            {
+                FlushBatch(int.MaxValue);
+                if (_pending.IsEmpty)
+                    return true;
+
+                if (DateTime.UtcNow >= deadline)
+                {
+                    AppLog.Warn("SQLite flush timed out with {0} message(s) still queued.", _pending.Count);
+                    return false;
+                }
+
+                Thread.Sleep(10);
+            }
+
+            return true;
         }
 
         private void WriterLoop()
@@ -110,14 +136,24 @@ CREATE INDEX IF NOT EXISTS idx_can_messages_can_id ON can_messages(can_id);";
                 {
                     FlushBatch(500);
                 }
-                catch
+                catch (Exception ex)
                 {
-                    // Keep writer alive; data remains queued for a later flush attempt.
+                    AppLog.Warn(ex, "SQLite writer flush failed; messages remain queued.");
                 }
-                Thread.Sleep(250);
+
+                if (_pending.IsEmpty)
+                    Thread.Sleep(250);
             }
 
-            try { FlushBatch(int.MaxValue); } catch { /* best effort on shutdown */ }
+            // Final drain after stop — keep trying until empty.
+            try
+            {
+                FlushUntilEmpty(TimeSpan.FromSeconds(10));
+            }
+            catch (Exception ex)
+            {
+                AppLog.Warn(ex, "SQLite final drain failed.");
+            }
         }
 
         private void FlushBatch(int maxBatch)
@@ -137,39 +173,49 @@ CREATE INDEX IF NOT EXISTS idx_can_messages_can_id ON can_messages(can_id);";
                 if (batch.Count == 0)
                     return;
 
-                using (var tx = _connection.BeginTransaction())
-                using (var cmd = _connection.CreateCommand())
+                try
                 {
-                    cmd.CommandText = @"INSERT INTO can_messages
+                    using (var tx = _connection.BeginTransaction())
+                    using (var cmd = _connection.CreateCommand())
+                    {
+                        cmd.CommandText = @"INSERT INTO can_messages
 (direction, timestamp_ms, raw_hw_time, wall_time, can_id, is_extended, is_rtr, dlc, data)
 VALUES(@dir, @ts, @raw, @wall, @id, @ext, @rtr, @dlc, @data)";
-                    var pDir = cmd.Parameters.Add("@dir", System.Data.DbType.String);
-                    var pTs = cmd.Parameters.Add("@ts", System.Data.DbType.Double);
-                    var pRaw = cmd.Parameters.Add("@raw", System.Data.DbType.Int32);
-                    var pWall = cmd.Parameters.Add("@wall", System.Data.DbType.String);
-                    var pId = cmd.Parameters.Add("@id", System.Data.DbType.Int64);
-                    var pExt = cmd.Parameters.Add("@ext", System.Data.DbType.Int32);
-                    var pRtr = cmd.Parameters.Add("@rtr", System.Data.DbType.Int32);
-                    var pDlc = cmd.Parameters.Add("@dlc", System.Data.DbType.Int32);
-                    var pData = cmd.Parameters.Add("@data", System.Data.DbType.Binary);
+                        var pDir = cmd.Parameters.Add("@dir", System.Data.DbType.String);
+                        var pTs = cmd.Parameters.Add("@ts", System.Data.DbType.Double);
+                        var pRaw = cmd.Parameters.Add("@raw", System.Data.DbType.Int32);
+                        var pWall = cmd.Parameters.Add("@wall", System.Data.DbType.String);
+                        var pId = cmd.Parameters.Add("@id", System.Data.DbType.Int64);
+                        var pExt = cmd.Parameters.Add("@ext", System.Data.DbType.Int32);
+                        var pRtr = cmd.Parameters.Add("@rtr", System.Data.DbType.Int32);
+                        var pDlc = cmd.Parameters.Add("@dlc", System.Data.DbType.Int32);
+                        var pData = cmd.Parameters.Add("@data", System.Data.DbType.Binary);
 
-                    foreach (var m in batch)
-                    {
-                        pDir.Value = m.Direction;
-                        pTs.Value = m.TimestampMs;
-                        pRaw.Value = m.RawHardwareTime;
-                        pWall.Value = m.WallTime.ToString("o");
-                        pId.Value = (long)m.CanId;
-                        pExt.Value = m.IsExtended ? 1 : 0;
-                        pRtr.Value = m.IsRtr ? 1 : 0;
-                        pDlc.Value = m.Dlc;
-                        pData.Value = m.Data ?? new byte[8];
-                        cmd.ExecuteNonQuery();
+                        foreach (var m in batch)
+                        {
+                            pDir.Value = m.Direction;
+                            pTs.Value = m.TimestampMs;
+                            pRaw.Value = m.RawHardwareTime;
+                            pWall.Value = m.WallTime.ToString("o");
+                            pId.Value = (long)m.CanId;
+                            pExt.Value = m.IsExtended ? 1 : 0;
+                            pRtr.Value = m.IsRtr ? 1 : 0;
+                            pDlc.Value = m.Dlc;
+                            pData.Value = m.Data ?? new byte[8];
+                            cmd.ExecuteNonQuery();
+                        }
+                        tx.Commit();
                     }
-                    tx.Commit();
-                }
 
-                Interlocked.Add(ref _totalWritten, batch.Count);
+                    Interlocked.Add(ref _totalWritten, batch.Count);
+                }
+                catch
+                {
+                    // Re-queue so messages are not lost on transient write failures.
+                    for (int i = batch.Count - 1; i >= 0; i--)
+                        _pending.Enqueue(batch[i]);
+                    throw;
+                }
             }
         }
 
@@ -260,8 +306,12 @@ VALUES(@dir, @ts, @raw, @wall, @id, @ext, @rtr, @dlc, @data)";
         public void Dispose()
         {
             _running = false;
-            try { _writerThread?.Join(3000); } catch { /* ignore */ }
-            try { Flush(); } catch { /* ignore */ }
+            try { _writerThread?.Join(15000); } catch { /* ignore */ }
+            try { FlushUntilEmpty(TimeSpan.FromSeconds(5)); } catch { /* ignore */ }
+
+            if (!_pending.IsEmpty)
+                AppLog.Warn("Disposing repository with {0} unsaved message(s).", _pending.Count);
+
             try
             {
                 _connection?.Close();
