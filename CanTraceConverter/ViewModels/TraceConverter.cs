@@ -32,7 +32,17 @@ namespace CanTraceConverter.ViewModels
         /// - errorCode: 0 on success, error code otherwise
         /// - header: Header information separately (for display purposes)
         /// </returns>
-        public async Task<(string result, int messageCount, int errorCode, string header)> ConvertAsync(
+        public Task<(string result, int messageCount, int errorCode, string header)> ConvertAsync(
+            string inputPath,
+            bool useDifferentialTime)
+        {
+            // Genuinely off the UI thread. This used to run inline and yield with
+            // Task.Delay(1) every 500 messages, which both stuttered the UI and added a
+            // system-timer tick (~15 ms) of pure waiting per yield.
+            return Task.Run(() => Convert(inputPath, useDifferentialTime));
+        }
+
+        private (string result, int messageCount, int errorCode, string header) Convert(
             string inputPath,
             bool useDifferentialTime)
         {
@@ -82,6 +92,8 @@ namespace CanTraceConverter.ViewModels
                 // ── Read messages ──────────────────────────────────────
                 tCanMsgStruct prevMsg = tCanMsgStruct.CreateInstance(0, 0);
                 var formatter = new UcanMsgFormatProvider(hwInfo, activeChannel);
+                var progressClock = System.Diagnostics.Stopwatch.StartNew();
+                long nextProgressMs = 0;
 
                 while (true)
                 {
@@ -100,11 +112,12 @@ namespace CanTraceConverter.ViewModels
                         string line = string.Format(formatter, "{0}", displayMsg);
                         sb.AppendLine(line);
 
-                        // Update progress every 500 messages
-                        if (count % 500 == 0)
+                        // Report progress on a time budget rather than a message count, so a
+                        // large trace does not pay a marshalling round-trip every 500 rows.
+                        if (progressClock.ElapsedMilliseconds >= nextProgressMs)
                         {
+                            nextProgressMs = progressClock.ElapsedMilliseconds + 250;
                             RaiseProgress(count);
-                            await Task.Delay(1); // Small yield for UI responsiveness
                         }
                     }
                     catch (EndOfStreamException)
@@ -143,11 +156,12 @@ namespace CanTraceConverter.ViewModels
             return sb.ToString();
         }
 
-        // Safe UI updates
+        // Safe UI updates. BeginInvoke, not Invoke: the conversion thread must not block
+        // waiting for the UI to render a progress number.
         private void RaiseStatus(string msg) =>
-            _dispatcher?.Invoke(() => StatusUpdated?.Invoke(msg));
+            _dispatcher?.BeginInvoke(new Action(() => StatusUpdated?.Invoke(msg)));
 
         private void RaiseProgress(int cnt) =>
-            _dispatcher?.Invoke(() => ProgressUpdated?.Invoke(cnt));
+            _dispatcher?.BeginInvoke(new Action(() => ProgressUpdated?.Invoke(cnt)));
     }
 }

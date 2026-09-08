@@ -12,6 +12,14 @@ namespace CanTraceConverter.Services
     /// Shares one <see cref="USBcanServer"/> / InitHardware per physical module so
     /// channel 0 and channel 1 can be opened from separate monitor windows.
     /// </summary>
+    /// <remarks>
+    /// <para>Locking order is <c>Gate</c> -> <c>SharedModule._ioLock</c>. A thread must never
+    /// acquire <c>Gate</c> while holding <c>_ioLock</c>, and no lock is ever held across a
+    /// thread join.</para>
+    /// <para>Driver event handlers only record state and signal the RX thread. Every call
+    /// back into the driver happens on the RX thread or on a caller thread, never inside an
+    /// event handler — the wrapper documents that as a deadlock hazard.</para>
+    /// </remarks>
     internal static class UsbCanHardwareManager
     {
         private static readonly object Gate = new object();
@@ -21,7 +29,7 @@ namespace CanTraceConverter.Services
             SessionConfig config,
             Action<CanMessageRecord> onMessage,
             Action onDisconnected,
-            Action<string> onCanError,
+            Action<CanBusStatus> onBusStatus,
             out AcquiredChannel acquired,
             out string error)
         {
@@ -40,31 +48,45 @@ namespace CanTraceConverter.Services
                 return false;
             }
 
-            lock (Gate)
+            // Disposal happens after the lock is released: DisposeHardware joins the RX
+            // thread, and that thread may itself be waiting on Gate to report a disconnect.
+            SharedModule abandoned = null;
+            try
             {
-                SharedModule module = FindExistingModule(config.DeviceNumber, config.Channel);
-
-                if (module == null)
+                lock (Gate)
                 {
-                    if (!TryCreateModule(config.DeviceNumber, out module, out error))
+                    SharedModule module = FindExistingModule(config.DeviceNumber, config.Channel);
+                    bool createdHere = false;
+
+                    if (module == null)
+                    {
+                        if (!TryCreateModule(config.DeviceNumber, out module, out error))
+                            return false;
+                        createdHere = true;
+                    }
+
+                    if (module.IsChannelOpen(config.Channel))
+                    {
+                        error = $"Channel {config.Channel} on device {module.DeviceNumber} is already open in another monitor window.";
+                        if (createdHere)
+                            abandoned = DetachModule_NoLock(module);
                         return false;
-                }
+                    }
 
-                if (module.IsChannelOpen(config.Channel))
-                {
-                    error = $"Channel {config.Channel} on device {module.DeviceNumber} is already open in another monitor window.";
-                    return false;
-                }
+                    if (!module.TryOpenChannel(config, onMessage, onDisconnected, onBusStatus, out error))
+                    {
+                        if (!module.HasOpenChannels)
+                            abandoned = DetachModule_NoLock(module);
+                        return false;
+                    }
 
-                if (!module.TryOpenChannel(config, onMessage, onDisconnected, onCanError, out error))
-                {
-                    if (!module.HasOpenChannels)
-                        RemoveModule_NoLock(module);
-                    return false;
+                    acquired = new AcquiredChannel(module, config.Channel);
+                    return true;
                 }
-
-                acquired = new AcquiredChannel(module, config.Channel);
-                return true;
+            }
+            finally
+            {
+                abandoned?.DisposeHardware();
             }
         }
 
@@ -73,18 +95,38 @@ namespace CanTraceConverter.Services
             if (acquired == null)
                 return;
 
+            SharedModule module;
+            byte channel;
+            bool disposeModule = false;
+
             lock (Gate)
             {
-                var module = acquired.Module;
+                module = acquired.Module;
                 if (module == null)
                     return;
 
-                module.CloseChannel(acquired.Channel);
+                channel = acquired.Channel;
                 acquired.Detach();
 
-                if (!module.HasOpenChannels)
-                    RemoveModule_NoLock(module);
+                // Publish "closed" before any native teardown so the RX thread stops
+                // reading this channel first (it re-checks the flag under _ioLock).
+                module.MarkChannelClosed(channel);
+
+                if (!module.HasOpenChannels &&
+                    Modules.TryGetValue(module.DeviceNumber, out var current) &&
+                    ReferenceEquals(current, module))
+                {
+                    Modules.Remove(module.DeviceNumber);
+                    disposeModule = true;
+                }
             }
+
+            // Slow work happens outside Gate: no registry lock is held across USB I/O or a
+            // thread join, so a disconnect running on the RX thread can never block on us.
+            if (disposeModule)
+                module.DisposeHardware();
+            else
+                module.CloseChannelIo(channel);
         }
 
         /// <summary>
@@ -104,7 +146,6 @@ namespace CanTraceConverter.Services
             {
                 try
                 {
-                    module.StopAllActivity();
                     module.DisposeHardware();
                 }
                 catch (Exception ex)
@@ -160,12 +201,35 @@ namespace CanTraceConverter.Services
             module = null;
             error = null;
 
+            byte target = requestedDeviceNumber;
+
+            // "First available" must never resolve onto a module this application already
+            // owns: initialising a second handle to it and then releasing that handle would
+            // deinitialise the hardware underneath a live session. Resolve to a concrete
+            // free device number first.
+            if (target == USBCAN_ANY_MODULE && Modules.Count > 0 &&
+                !TryResolveFreeDeviceNumber_NoLock(out target, out error))
+            {
+                return false;
+            }
+
             var server = new USBcanServer();
-            int result = server.InitHardware(requestedDeviceNumber);
+            int result;
+            try
+            {
+                result = server.InitHardware(target);
+            }
+            catch (Exception ex)
+            {
+                error = $"InitHardware failed: {ex.Message}";
+                SafeReleaseServer(server);
+                return false;
+            }
+
             if (result != (int)eUcanReturn.USBCAN_SUCCESSFUL)
             {
                 error = DescribeHwError("InitHardware", result);
-                try { server.Shutdown((byte)eUcanChannel.USBCAN_CHANNEL_ANY, true); } catch { /* ignore */ }
+                SafeReleaseServer(server);
                 return false;
             }
 
@@ -178,7 +242,9 @@ namespace CanTraceConverter.Services
             if (Modules.ContainsKey(resolved))
             {
                 error = $"Device {resolved} is already open in this application.";
-                try { server.Shutdown((byte)eUcanChannel.USBCAN_CHANNEL_ANY, true); } catch { /* ignore */ }
+                AppLog.Warn("InitHardware({0}) resolved to device {1}, which is already open here; releasing the duplicate handle.",
+                    target, resolved);
+                SafeReleaseServer(server);
                 return false;
             }
 
@@ -187,13 +253,71 @@ namespace CanTraceConverter.Services
             return true;
         }
 
-        private static void RemoveModule_NoLock(SharedModule module)
+        /// <summary>
+        /// Enumerates (without initialising) to find a device number this application has
+        /// not already opened. Called with <see cref="Gate"/> held.
+        /// </summary>
+        private static bool TryResolveFreeDeviceNumber_NoLock(out byte deviceNumber, out string error)
         {
-            if (module == null)
+            deviceNumber = USBCAN_ANY_MODULE;
+            error = null;
+
+            var candidates = new List<byte>();
+            try
+            {
+                USBcanServer.EnumerateHardware(
+                    0, 254,
+                    (int index, bool isUsed, tUcanHardwareInfoEx hw, ref bool doInit, ref bool tryNext) =>
+                    {
+                        // Never initialise during discovery — that would open hardware we are
+                        // only inspecting, and the driver ignores it for in-use devices anyway.
+                        doInit = false;
+                        tryNext = true;
+                        if (!isUsed && !candidates.Contains(hw.m_bDeviceNr))
+                            candidates.Add(hw.m_bDeviceNr);
+                    },
+                    true);
+            }
+            catch (Exception ex)
+            {
+                AppLog.Warn(ex, "Could not enumerate devices while resolving auto-detect.");
+            }
+
+            foreach (var candidate in candidates.OrderBy(d => d))
+            {
+                if (!Modules.ContainsKey(candidate))
+                {
+                    deviceNumber = candidate;
+                    return true;
+                }
+            }
+
+            error = "No further USB-CAN device is available. Both channels of the connected module are already open.";
+            return false;
+        }
+
+        /// <summary>Shuts a server down and disposes it, so the wrapper releases its handle
+        /// registration and plug-and-play reference count.</summary>
+        internal static void SafeReleaseServer(USBcanServer server)
+        {
+            if (server == null)
                 return;
 
+            try { server.Shutdown((byte)eUcanChannel.USBCAN_CHANNEL_ALL, true); } catch { /* ignore */ }
+            try { server.Dispose(); } catch { /* ignore */ }
+        }
+
+        /// <summary>
+        /// Unregisters a module and hands it back for disposal by the caller, once the caller
+        /// has released <see cref="Gate"/>.
+        /// </summary>
+        private static SharedModule DetachModule_NoLock(SharedModule module)
+        {
+            if (module == null)
+                return null;
+
             Modules.Remove(module.DeviceNumber);
-            module.DisposeHardware();
+            return module;
         }
 
         internal static string DescribeHwError(string operation, int code)
@@ -209,6 +333,9 @@ namespace CanTraceConverter.Services
 
             if (code == (int)eUcanReturn.USBCAN_ERRCMD_ALREADYINIT)
                 return $"{operation} failed: channel already initialized (0x{code:X}).";
+
+            if (code == (int)eUcanReturn.USBCAN_ERR_ILLCHANNEL)
+                return $"{operation} failed: this module does not have that CAN channel (0x{code:X}).";
 
             return $"{operation} failed (0x{code:X}).";
         }
@@ -228,13 +355,35 @@ namespace CanTraceConverter.Services
                 Channel = channel;
             }
 
-            public bool SendOnce(uint canId, byte dlc, byte[] data, bool extended, bool rtr) =>
-                Module != null && Module.SendOnce(Channel, canId, dlc, data, extended, rtr);
+            public bool SendOnce(uint canId, byte dlc, byte[] data, bool extended, bool rtr)
+            {
+                var module = Module;
+                return module != null && module.SendOnce(Channel, canId, dlc, data, extended, rtr);
+            }
 
-            public bool SendPeriodicFirmware(int intervalMs, uint canId, byte dlc, byte[] data, bool extended) =>
-                Module != null && Module.SendPeriodicFirmware(Channel, intervalMs, canId, dlc, data, extended);
+            public bool SendPeriodicFirmware(int intervalMs, uint canId, byte dlc, byte[] data, bool extended)
+            {
+                var module = Module;
+                return module != null && module.SendPeriodicFirmware(Channel, intervalMs, canId, dlc, data, extended);
+            }
 
-            public void StopPeriodicFirmware() => Module?.StopPeriodicFirmware(Channel);
+            public void StopPeriodicFirmware()
+            {
+                var module = Module;
+                module?.StopPeriodicFirmware(Channel);
+            }
+
+            public bool ResetController(out string error)
+            {
+                var module = Module;
+                if (module == null)
+                {
+                    error = "Not connected to CAN hardware.";
+                    return false;
+                }
+
+                return module.ResetController(Channel, out error);
+            }
 
             internal void Detach() => Module = null;
         }
@@ -243,21 +392,43 @@ namespace CanTraceConverter.Services
         {
             private const long StatusPollIntervalMs = 300;
 
+            /// <summary>Status bits that mean a real bus or controller fault. Everything else
+            /// the driver reports (queue empty, TX buffer full) is a normal transient state.</summary>
+            private const int RealBusErrorMask =
+                (int)eUcanCanStatus.USBCAN_CANERR_OVERRUN |
+                (int)eUcanCanStatus.USBCAN_CANERR_BUSLIGHT |
+                (int)eUcanCanStatus.USBCAN_CANERR_BUSHEAVY |
+                (int)eUcanCanStatus.USBCAN_CANERR_BUSOFF |
+                (int)eUcanCanStatus.USBCAN_CANERR_QOVERRUN |
+                (int)eUcanCanStatus.USBCAN_CANERR_REGTEST |
+                (int)eUcanCanStatus.USBCAN_CANERR_MEMTEST |
+                (int)eUcanCanStatus.USBCAN_CANERR_TXMSGLOST;
+
+            /// <summary>Serialises every call into the native wrapper for this module.
+            /// The wrapper does not lock <c>ReadCanMsg</c> against <c>Shutdown</c>.</summary>
+            private readonly object _ioLock = new object();
+
+            /// <summary>Guards only the disconnect callback hand-off.</summary>
             private readonly object _sync = new object();
+
             private readonly ChannelSlot[] _channels = { new ChannelSlot(), new ChannelSlot() };
             private readonly AutoResetEvent _msgSignal = new AutoResetEvent(false);
-            private readonly bool[] _statusPending = new bool[2];
             private readonly System.Diagnostics.Stopwatch _statusClock = System.Diagnostics.Stopwatch.StartNew();
             private long _lastStatusPollMs;
             private USBcanServer _server;
             private Thread _rxThread;
             private volatile bool _rxRunning;
+            private volatile bool _disconnectRequested;
+            private volatile bool _fatalDisconnect;
+            private volatile bool _dead;
             private bool _eventsHooked;
-            private bool _disposed;
+            private int _disposed;
+            private long _rxFaultCount;
 
             public byte DeviceNumber { get; }
             public tUcanHardwareInfoEx HardwareInfo { get; private set; }
             public bool HasOpenChannels => _channels.Any(c => c.Open);
+            public bool IsDead => _dead;
 
             public SharedModule(USBcanServer server, byte deviceNumber, tUcanHardwareInfoEx hwInfo)
             {
@@ -265,6 +436,7 @@ namespace CanTraceConverter.Services
                 DeviceNumber = deviceNumber;
                 HardwareInfo = hwInfo;
                 HookEvents();
+                StartRxThread();
             }
 
             public bool IsChannelOpen(byte channel) =>
@@ -277,30 +449,51 @@ namespace CanTraceConverter.Services
                 SessionConfig config,
                 Action<CanMessageRecord> onMessage,
                 Action onDisconnected,
-                Action<string> onCanError,
+                Action<CanBusStatus> onBusStatus,
                 out string error)
             {
                 error = null;
+
+                if (_dead || _server == null)
+                {
+                    error = "The USB-CAN module is no longer available.";
+                    return false;
+                }
+
                 byte channel = config.Channel;
 
                 byte mode = config.ListenOnly
                     ? (byte)tUcanMode.kUcanModeListenOnly
                     : (byte)(tUcanMode.kUcanModeNormal | tUcanMode.kUcanModeTxEcho);
 
-                if (CheckIs_G4(HardwareInfo))
+                bool highResRequested = CheckIs_G4(HardwareInfo);
+                if (highResRequested)
                     mode |= (byte)tUcanMode.kUcanModeHighResTimer;
 
                 int baudEx = CanMessageHelper.MapBaudRateKbps(config.BaudRateKbps, HardwareInfo);
                 short wBtr = (short)eUcanBaudrate.USBCAN_BAUD_USE_BTREX;
 
-                int result = _server.InitCan(
-                    channel,
-                    wBtr,
-                    baudEx,
-                    USBCAN_AMR_ALL,
-                    USBCAN_ACR_ALL,
-                    mode,
-                    (byte)eUcanOutputControl.USBCAN_OCR_DEFAULT);
+                int result;
+                lock (_ioLock)
+                {
+                    if (_server == null)
+                    {
+                        error = "The USB-CAN module is no longer available.";
+                        return false;
+                    }
+
+                    result = _server.InitCan(
+                        channel,
+                        wBtr,
+                        baudEx,
+                        USBCAN_AMR_ALL,
+                        USBCAN_ACR_ALL,
+                        mode,
+                        (byte)eUcanOutputControl.USBCAN_OCR_DEFAULT);
+
+                    if (result == (int)eUcanReturn.USBCAN_SUCCESSFUL)
+                        RefreshHardwareInfo_NoLock();
+                }
 
                 if (result != (int)eUcanReturn.USBCAN_SUCCESSFUL)
                 {
@@ -308,104 +501,140 @@ namespace CanTraceConverter.Services
                     return false;
                 }
 
-                RefreshHardwareInfo();
-
                 var slot = _channels[channel];
-                slot.Open = true;
+
+                // Resolve the timestamp scale once, here, rather than re-reading a shared
+                // struct on the RX thread for every message.
+                bool highResActive = highResRequested &&
+                    (slot.Info.m_bMode & (byte)tUcanMode.kUcanModeHighResTimer) != 0;
+
                 slot.ListenOnly = config.ListenOnly;
+                slot.TimestampScaleMs = highResActive ? 0.1 : 1.0;
+                slot.ResetTimeUnwrap();
+                slot.LastStatusKey = -1;
                 slot.OnMessage = onMessage;
                 slot.OnDisconnected = onDisconnected;
-                slot.OnCanError = onCanError;
-                slot.Info = channel == 0
-                    ? ReadChannelInfo(0)
-                    : ReadChannelInfo(1);
+                slot.OnBusStatus = onBusStatus;
 
-                EnsureRxThread();
+                // Published last: readers test Open (volatile) before touching anything else.
+                slot.Open = true;
+
+                AppLog.Info("Device {0} CH{1} opened: {2} kBit/s, listen-only={3}, timestamp scale={4} ms/tick.",
+                    DeviceNumber, channel, config.BaudRateKbps, config.ListenOnly, slot.TimestampScaleMs);
+
+                SignalRx();
                 return true;
             }
 
-            public void CloseChannel(byte channel)
+            /// <summary>
+            /// Marks a channel closed so the RX thread stops reading it. Does no native I/O:
+            /// callers run <see cref="CloseChannelIo"/> or <see cref="DisposeHardware"/> after
+            /// releasing the registry lock.
+            /// </summary>
+            public bool MarkChannelClosed(byte channel)
             {
                 if (channel >= _channels.Length)
-                    return;
+                    return false;
 
                 var slot = _channels[channel];
                 if (!slot.Open)
-                    return;
-
-                try { StopPeriodicFirmware(channel, force: true); } catch { /* ignore */ }
-
-                try
-                {
-                    // Keep hardware open if the other channel is still in use.
-                    bool shutHardware = !_channels.Where((c, i) => i != channel && c.Open).Any();
-                    _server?.Shutdown(channel, shutHardware);
-                }
-                catch
-                {
-                    // Ignore native shutdown errors.
-                }
+                    return false;
 
                 slot.Open = false;
                 slot.OnMessage = null;
                 slot.OnDisconnected = null;
-                slot.OnCanError = null;
-                _statusPending[channel] = false;
-
-                if (!HasOpenChannels)
-                    StopRxThread();
+                slot.OnBusStatus = null;
+                return true;
             }
 
             /// <summary>
-            /// Stop software-visible activity and firmware cyclic TX on every channel
-            /// before hardware teardown.
+            /// Deinitialises one channel while the other one stays in use. Runs after
+            /// <see cref="MarkChannelClosed"/>, so the RX thread is no longer reading it.
             /// </summary>
-            public void StopAllActivity()
+            public void CloseChannelIo(byte channel)
             {
-                for (byte channel = 0; channel < _channels.Length; channel++)
-                {
-                    try { StopPeriodicFirmware(channel, force: true); } catch { /* ignore */ }
+                if (channel >= _channels.Length)
+                    return;
 
-                    lock (_sync)
+                StopPeriodicFirmware(channel);
+
+                lock (_ioLock)
+                {
+                    try
                     {
-                        _channels[channel].Open = false;
-                        _channels[channel].OnMessage = null;
-                        _channels[channel].OnDisconnected = null;
-                        _channels[channel].OnCanError = null;
+                        // Keep the hardware open — the other channel is still in use.
+                        _server?.Shutdown(channel, false);
+                    }
+                    catch (Exception ex)
+                    {
+                        AppLog.Warn(ex, "Shutdown of device " + DeviceNumber + " CH" + channel + " failed.");
                     }
                 }
-
-                _rxRunning = false;
-                try { _msgSignal.Set(); } catch { /* ignore */ }
             }
 
             public void DisposeHardware()
             {
-                if (_disposed)
+                if (Interlocked.Exchange(ref _disposed, 1) != 0)
                     return;
-                _disposed = true;
 
-                try { StopAllActivity(); } catch { /* ignore */ }
-                StopRxThread();
+                _dead = true;
+
+                for (byte channel = 0; channel < _channels.Length; channel++)
+                    MarkChannelClosed(channel);
+
+                // Unhook before stopping the reader so no further callbacks arrive.
                 UnhookEvents();
 
-                try
+                _rxRunning = false;
+                SignalRx();
+                JoinRxThread();
+
+                lock (_ioLock)
                 {
-                    // Final hard close — frees the module for other applications.
-                    _server?.Shutdown((byte)eUcanChannel.USBCAN_CHANNEL_ANY, true);
-                }
-                catch
-                {
-                    // Ignore.
+                    var server = _server;
+                    _server = null;
+
+                    if (server != null)
+                    {
+                        try
+                        {
+                            // Firmware cyclic TX is only touched when it was actually started,
+                            // and never after a fatal disconnect — the device is gone.
+                            if (!_fatalDisconnect)
+                            {
+                                for (byte channel = 0; channel < _channels.Length; channel++)
+                                    StopPeriodicFirmware_NoLock(server, channel);
+                            }
+
+                            // Final hard close — frees the module for other applications.
+                            server.Shutdown((byte)eUcanChannel.USBCAN_CHANNEL_ALL, true);
+                        }
+                        catch (Exception ex)
+                        {
+                            AppLog.Warn(ex, "Final shutdown of device " + DeviceNumber + " failed.");
+                        }
+
+                        // Dispose releases the wrapper's static handle registration and its
+                        // plug-and-play reference; without it, stale entries can absorb the
+                        // fatal-disconnect callback meant for a later module.
+                        try { server.Dispose(); } catch { /* ignore */ }
+                    }
                 }
 
-                _server = null;
-                try { _msgSignal.Dispose(); } catch { /* ignore */ }
+                if (Interlocked.Read(ref _rxFaultCount) > 0)
+                {
+                    AppLog.Warn("Device {0}: {1} receive error(s) were suppressed during this session.",
+                        DeviceNumber, Interlocked.Read(ref _rxFaultCount));
+                }
+
+                // _msgSignal is deliberately not disposed: a driver callback thread can still
+                // be between its _rxRunning check and its Set(), and disposing here would
+                // throw ObjectDisposedException on a thread we do not own.
             }
 
             public bool SendOnce(byte channel, uint canId, byte dlc, byte[] data, bool extended, bool rtr)
             {
-                if (_server == null || !IsChannelOpen(channel) || _channels[channel].ListenOnly)
+                if (channel >= _channels.Length || !IsChannelOpen(channel) || _channels[channel].ListenOnly)
                     return false;
 
                 try
@@ -413,59 +642,90 @@ namespace CanTraceConverter.Services
                     var msg = CanMessageHelper.ToHardwareMessage(canId, dlc, data, extended, rtr);
                     var list = new[] { msg };
                     int count = 0;
-                    int result = _server.WriteCanMsg(channel, ref list, ref count);
-                    return result == (int)eUcanReturn.USBCAN_SUCCESSFUL && count > 0;
+
+                    lock (_ioLock)
+                    {
+                        if (_server == null || !_channels[channel].Open)
+                            return false;
+
+                        int result = _server.WriteCanMsg(channel, ref list, ref count);
+                        return result == (int)eUcanReturn.USBCAN_SUCCESSFUL && count > 0;
+                    }
                 }
-                catch
+                catch (Exception ex)
                 {
+                    AppLog.Warn(ex, "WriteCanMsg failed on device " + DeviceNumber + " CH" + channel + ".");
                     return false;
                 }
             }
 
             public bool SendPeriodicFirmware(byte channel, int intervalMs, uint canId, byte dlc, byte[] data, bool extended)
             {
-                if (_server == null || !IsChannelOpen(channel) || _channels[channel].ListenOnly || !CheckSupportCyclicMsg(HardwareInfo))
+                if (channel >= _channels.Length || !IsChannelOpen(channel) ||
+                    _channels[channel].ListenOnly || !CheckSupportCyclicMsg(HardwareInfo))
+                {
                     return false;
+                }
 
                 try
                 {
                     var msg = CanMessageHelper.ToHardwareMessage(canId, dlc, data, extended, false);
                     msg.m_dwTime = intervalMs;
                     var list = new[] { msg };
-                    int result = _server.DefineCyclicCanMsg(channel, ref list);
-                    if (result != (int)eUcanReturn.USBCAN_SUCCESSFUL)
-                        return false;
 
-                    result = _server.EnableCyclicCanMsg(channel, (int)eUcanCyclicFlags.USBCAN_CYCLIC_FLAG_START);
-                    if (result == (int)eUcanReturn.USBCAN_SUCCESSFUL)
+                    lock (_ioLock)
+                    {
+                        if (_server == null || !_channels[channel].Open)
+                            return false;
+
+                        int result = _server.DefineCyclicCanMsg(channel, ref list);
+                        if (result != (int)eUcanReturn.USBCAN_SUCCESSFUL)
+                            return false;
+
+                        result = _server.EnableCyclicCanMsg(channel, (int)eUcanCyclicFlags.USBCAN_CYCLIC_FLAG_START);
+                        if (result != (int)eUcanReturn.USBCAN_SUCCESSFUL)
+                            return false;
+
                         _channels[channel].FirmwareCyclicActive = true;
-                    return result == (int)eUcanReturn.USBCAN_SUCCESSFUL;
+                        return true;
+                    }
                 }
-                catch
+                catch (Exception ex)
                 {
+                    AppLog.Warn(ex, "Firmware cyclic TX could not be started on device " + DeviceNumber + ".");
                     return false;
                 }
             }
 
-            public void StopPeriodicFirmware(byte channel) => StopPeriodicFirmware(channel, force: false);
-
-            public void StopPeriodicFirmware(byte channel, bool force)
+            /// <summary>
+            /// Stops device-side cyclic transmission. Only issues USB traffic when this module
+            /// actually started it — the previous guard sent two round-trips on every teardown.
+            /// </summary>
+            public void StopPeriodicFirmware(byte channel)
             {
-                if (_server == null || channel >= _channels.Length)
+                if (channel >= _channels.Length || !_channels[channel].FirmwareCyclicActive)
                     return;
 
-                if (!force && !IsChannelOpen(channel) && !_channels[channel].FirmwareCyclicActive)
+                lock (_ioLock)
+                {
+                    StopPeriodicFirmware_NoLock(_server, channel);
+                }
+            }
+
+            private void StopPeriodicFirmware_NoLock(USBcanServer server, byte channel)
+            {
+                if (server == null || !_channels[channel].FirmwareCyclicActive)
                     return;
 
                 try
                 {
-                    _server.EnableCyclicCanMsg(channel, (int)eUcanCyclicFlags.USBCAN_CYCLIC_FLAG_STOPP);
+                    server.EnableCyclicCanMsg(channel, (int)eUcanCyclicFlags.USBCAN_CYCLIC_FLAG_STOPP);
                     var empty = new tCanMsgStruct[0];
-                    _server.DefineCyclicCanMsg(channel, ref empty);
+                    server.DefineCyclicCanMsg(channel, ref empty);
                 }
-                catch
+                catch (Exception ex)
                 {
-                    // Ignore.
+                    AppLog.Warn(ex, "Stopping firmware cyclic TX on device " + DeviceNumber + " failed.");
                 }
                 finally
                 {
@@ -473,11 +733,51 @@ namespace CanTraceConverter.Services
                 }
             }
 
-            private void EnsureRxThread()
+            /// <summary>Resets the CAN controller — the documented recovery from bus-off.</summary>
+            public bool ResetController(byte channel, out string error)
             {
-                if (_rxRunning)
-                    return;
+                error = null;
 
+                if (channel >= _channels.Length || !IsChannelOpen(channel))
+                {
+                    error = "Channel is not open.";
+                    return false;
+                }
+
+                lock (_ioLock)
+                {
+                    if (_server == null)
+                    {
+                        error = "The USB-CAN module is no longer available.";
+                        return false;
+                    }
+
+                    try
+                    {
+                        int result = _server.ResetCan(channel, (int)eUcanResetFlags.USBCAN_RESET_ALL);
+                        if (result != (int)eUcanReturn.USBCAN_SUCCESSFUL)
+                        {
+                            error = DescribeHwError("ResetCan", result);
+                            return false;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        error = "ResetCan failed: " + ex.Message;
+                        return false;
+                    }
+                }
+
+                _channels[channel].LastStatusKey = -1;
+                SignalRx();
+                AppLog.Info("CAN controller reset on device {0} CH{1}.", DeviceNumber, channel);
+                return true;
+            }
+
+            // ---------------------------------------------------------------- RX thread
+
+            private void StartRxThread()
+            {
                 _rxRunning = true;
                 _rxThread = new Thread(RxLoop)
                 {
@@ -487,20 +787,165 @@ namespace CanTraceConverter.Services
                 _rxThread.Start();
             }
 
-            private void StopRxThread()
+            private void JoinRxThread()
             {
-                _rxRunning = false;
-                try { _msgSignal.Set(); } catch { /* ignore */ }
-
                 var thread = _rxThread;
-                if (thread != null && thread != Thread.CurrentThread)
+                if (thread == null || thread == Thread.CurrentThread)
+                    return;
+
+                try
                 {
-                    try { thread.Join(2000); } catch { /* ignore */ }
+                    if (!thread.Join(2000))
+                        AppLog.Warn("RX thread for device {0} did not stop within 2 s.", DeviceNumber);
+                }
+                catch { /* ignore */ }
+
+                _rxThread = null;
+            }
+
+            private void SignalRx()
+            {
+                // The signal is intentionally never disposed, but a race with teardown can
+                // still leave it unusable in edge cases — never let that escape.
+                try { _msgSignal.Set(); } catch { /* ignore */ }
+            }
+
+            private void RxLoop()
+            {
+                var buffer = new tCanMsgStruct[64];
+
+                while (_rxRunning)
+                {
+                    try
+                    {
+                        _msgSignal.WaitOne(50);
+
+                        if (_disconnectRequested && ProcessPendingDisconnect())
+                            break;
+
+                        DrainReceiveQueue(buffer);
+                        PollStatus();
+                    }
+                    catch (Exception ex)
+                    {
+                        Interlocked.Increment(ref _rxFaultCount);
+                        if (Interlocked.Read(ref _rxFaultCount) == 1)
+                            AppLog.Warn(ex, "First receive-loop error on device " + DeviceNumber + "; further errors are counted only.");
+
+                        if (_rxRunning)
+                            Thread.Sleep(10);
+                    }
+                }
+            }
+
+            private void DrainReceiveQueue(tCanMsgStruct[] buffer)
+            {
+                for (byte channel = 0; channel < _channels.Length; channel++)
+                {
+                    var slot = _channels[channel];
+                    if (!slot.Open)
+                        continue;
+
+                    while (_rxRunning)
+                    {
+                        byte readChannel = channel;
+                        int count = 0;
+                        int result;
+
+                        lock (_ioLock)
+                        {
+                            // Re-check inside the lock: a close may have landed while we waited.
+                            if (_server == null || !slot.Open)
+                                break;
+
+                            result = _server.ReadCanMsg(ref readChannel, ref buffer, ref count);
+                        }
+
+                        if (result != (int)eUcanReturn.USBCAN_SUCCESSFUL || count <= 0)
+                            break;
+
+                        var wallTime = DateTime.Now;
+                        var handler = slot.OnMessage;
+                        if (handler == null)
+                            break; // Channel is closing — stop draining rather than spinning.
+
+                        for (int i = 0; i < count; i++)
+                        {
+                            try
+                            {
+                                var record = CanMessageHelper.FromHardwareMessage(
+                                    buffer[i], slot.TimestampScaleMs, slot.UnwrapTime(buffer[i].m_dwTime), wallTime);
+                                handler.Invoke(record);
+                            }
+                            catch (Exception ex)
+                            {
+                                Interlocked.Increment(ref _rxFaultCount);
+                                if (Interlocked.Read(ref _rxFaultCount) == 1)
+                                    AppLog.Warn(ex, "First message dispatch error on device " + DeviceNumber + "; further errors are counted only.");
+                            }
+                        }
+                    }
+                }
+            }
+
+            /// <summary>
+            /// Reads CAN status on a fixed cadence rather than only when the driver raises an
+            /// event, so a fault that clears is reported as cleared.
+            /// </summary>
+            private void PollStatus()
+            {
+                long now = _statusClock.ElapsedMilliseconds;
+                if (now - _lastStatusPollMs < StatusPollIntervalMs)
+                    return;
+
+                bool didWork = false;
+
+                for (byte channel = 0; channel < _channels.Length; channel++)
+                {
+                    var slot = _channels[channel];
+                    if (!slot.Open)
+                        continue;
+
+                    didWork = true;
+
+                    int raw = 0;
+                    lock (_ioLock)
+                    {
+                        if (_server == null || !slot.Open)
+                            continue;
+
+                        var status = new tStatusStruct();
+                        int result = _server.GetStatus(channel, ref status);
+                        if (result != (int)eUcanReturn.USBCAN_SUCCESSFUL)
+                            continue;
+
+                        raw = status.m_wCanStatus;
+                    }
+
+                    int key = raw & RealBusErrorMask;
+                    if (key == slot.LastStatusKey)
+                        continue;
+
+                    slot.LastStatusKey = key;
+
+                    var busStatus = CanBusStatus.FromRawStatus(raw);
+                    var handler = slot.OnBusStatus;
+                    try { handler?.Invoke(busStatus); }
+                    catch (Exception ex) { AppLog.Warn(ex, "Bus status handler threw."); }
+
+                    if (busStatus.IsError)
+                        AppLog.Warn("Device {0} CH{1} bus status: {2} (0x{3:X}).", DeviceNumber, channel, busStatus.Message, raw);
                 }
 
-                if (thread == null || thread != Thread.CurrentThread)
-                    _rxThread = null;
+                if (didWork)
+                    _lastStatusPollMs = now;
             }
+
+            // ------------------------------------------------------------ driver events
+            //
+            // Every handler below runs on a driver-owned thread. The wrapper documents that
+            // calling any class method from inside one risks a deadlock, and forbids it
+            // outright after a fatal disconnect — so these only record state and signal.
 
             private void HookEvents()
             {
@@ -529,10 +974,7 @@ namespace CanTraceConverter.Services
                     }
                     USBcanServer.DisconnectEvent -= OnDisconnect;
                 }
-                catch
-                {
-                    // Ignore detach errors.
-                }
+                catch { /* ignore detach errors */ }
                 finally
                 {
                     _eventsHooked = false;
@@ -541,188 +983,123 @@ namespace CanTraceConverter.Services
 
             private void OnCanMsgReceived(byte deviceNr, byte channel)
             {
-                if (_rxRunning)
-                    _msgSignal.Set();
+                try
+                {
+                    if (_rxRunning)
+                        SignalRx();
+                }
+                catch { /* never throw on a driver thread */ }
             }
 
             private void OnStatusEvent(byte deviceNr, byte channel)
             {
-                if (channel < _statusPending.Length)
-                    _statusPending[channel] = true;
+                try
+                {
+                    // Wake the reader; it re-reads status on its own cadence.
+                    SignalRx();
+                }
+                catch { /* never throw on a driver thread */ }
             }
 
             private void OnDisconnect()
             {
-                // Static event — ignore if this module's hardware is still reachable
-                // (another USB-CAN device may have been unplugged).
-                if (!HasOpenChannels || _server == null)
-                    return;
-
+                // Static event: fires for any module. The RX thread decides whether it was
+                // ours by probing the hardware — a driver call that must not happen here.
                 try
                 {
-                    var hw = HardwareInfo;
-                    var ch0 = new tUcanChannelInfo();
-                    var ch1 = new tUcanChannelInfo();
-                    int result = _server.GetHardwareInfo(ref hw, ref ch0, ref ch1);
-                    if (result == (int)eUcanReturn.USBCAN_SUCCESSFUL)
+                    if (_dead || !HasOpenChannels)
                         return;
-                }
-                catch
-                {
-                    // Fall through to disconnect handling.
-                }
 
-                HandleDisconnect("USB device disconnected");
+                    _disconnectRequested = true;
+                    SignalRx();
+                }
+                catch { /* never throw on a driver thread */ }
             }
 
             private void OnFatalDisconnect(byte deviceNr)
             {
-                if (deviceNr != DeviceNumber)
-                    return;
+                try
+                {
+                    if (deviceNr != DeviceNumber || _dead)
+                        return;
 
-                HandleDisconnect("Fatal USB disconnect");
+                    _fatalDisconnect = true;
+                    _disconnectRequested = true;
+                    SignalRx();
+                }
+                catch { /* never throw on a driver thread */ }
+            }
+
+            /// <summary>Runs on the RX thread. Returns true when the module was torn down.</summary>
+            private bool ProcessPendingDisconnect()
+            {
+                _disconnectRequested = false;
+
+                bool fatal = _fatalDisconnect;
+                if (!fatal && IsHardwareStillPresent())
+                    return false;
+
+                HandleDisconnect(fatal ? "Fatal USB disconnect" : "USB device disconnected");
+                return true;
+            }
+
+            private bool IsHardwareStillPresent()
+            {
+                lock (_ioLock)
+                {
+                    if (_server == null)
+                        return false;
+
+                    try
+                    {
+                        var hw = HardwareInfo;
+                        var ch0 = new tUcanChannelInfo();
+                        var ch1 = new tUcanChannelInfo();
+                        return _server.GetHardwareInfo(ref hw, ref ch0, ref ch1) == (int)eUcanReturn.USBCAN_SUCCESSFUL;
+                    }
+                    catch
+                    {
+                        return false;
+                    }
+                }
             }
 
             private void HandleDisconnect(string message)
             {
-                Action[] callbacks;
-                lock (_sync)
-                {
-                    callbacks = _channels
-                        .Where(c => c.Open && c.OnDisconnected != null)
-                        .Select(c => c.OnDisconnected)
-                        .ToArray();
-
-                    foreach (var slot in _channels)
-                    {
-                        slot.Open = false;
-                        slot.OnMessage = null;
-                        slot.OnCanError = null;
-                        slot.OnDisconnected = null;
-                    }
-                }
-
-                _rxRunning = false;
-                try { _msgSignal.Set(); } catch { /* ignore */ }
-
+                // Safe to take Gate here: Release never holds it across a join, so the UI
+                // thread cannot be waiting on this thread while holding it.
                 lock (Gate)
                 {
                     if (Modules.TryGetValue(DeviceNumber, out var current) && ReferenceEquals(current, this))
                         Modules.Remove(DeviceNumber);
                 }
 
+                Action[] callbacks;
+                lock (_sync)
+                {
+                    _dead = true;
+                    callbacks = _channels
+                        .Where(c => c.Open && c.OnDisconnected != null)
+                        .Select(c => c.OnDisconnected)
+                        .ToArray();
+
+                    for (byte channel = 0; channel < _channels.Length; channel++)
+                        MarkChannelClosed(channel);
+                }
+
+                _rxRunning = false;
+
                 foreach (var cb in callbacks)
                 {
-                    try { cb(); } catch { /* ignore */ }
+                    try { cb(); } catch { /* ignore subscriber errors */ }
                 }
 
                 AppLog.Warn("Shared USB-CAN module {0} disconnected: {1}", DeviceNumber, message);
                 DisposeHardware();
             }
 
-            private void RxLoop()
-            {
-                var buffer = new tCanMsgStruct[64];
-
-                while (_rxRunning)
-                {
-                    try
-                    {
-                        _msgSignal.WaitOne(50);
-                        DrainReceiveQueue(buffer);
-                        PollPendingStatus();
-                    }
-                    catch
-                    {
-                        if (_rxRunning)
-                            Thread.Sleep(10);
-                    }
-                }
-            }
-
-            private void DrainReceiveQueue(tCanMsgStruct[] buffer)
-            {
-                if (_server == null)
-                    return;
-
-                for (byte channel = 0; channel < 2; channel++)
-                {
-                    if (!_channels[channel].Open)
-                        continue;
-
-                    while (_rxRunning && _server != null)
-                    {
-                        byte readChannel = channel;
-                        int count = 0;
-                        int result = _server.ReadCanMsg(ref readChannel, ref buffer, ref count);
-                        if (result != (int)eUcanReturn.USBCAN_SUCCESSFUL || count <= 0)
-                            break;
-
-                        var wallTime = DateTime.Now;
-                        var handler = _channels[channel].OnMessage;
-                        if (handler == null)
-                            continue;
-
-                        for (int i = 0; i < count; i++)
-                        {
-                            try
-                            {
-                                var record = CanMessageHelper.FromHardwareMessage(
-                                    buffer[i], HardwareInfo, _channels[channel].Info, wallTime);
-                                handler.Invoke(record);
-                            }
-                            catch
-                            {
-                                // Skip malformed messages.
-                            }
-                        }
-                    }
-                }
-            }
-
-            private void PollPendingStatus()
-            {
-                if (_server == null)
-                    return;
-
-                // Throttle GetStatus (a blocking USB round-trip). Without this, a busy or
-                // erroring bus fires StatusEvent continuously and starves ReadCanMsg on the
-                // RX thread, overflowing the driver FIFO and corrupting RX timing/period.
-                long now = _statusClock.ElapsedMilliseconds;
-                if (now - _lastStatusPollMs < StatusPollIntervalMs)
-                    return;
-                _lastStatusPollMs = now;
-
-                for (byte channel = 0; channel < 2; channel++)
-                {
-                    if (!_statusPending[channel] || !_channels[channel].Open)
-                        continue;
-
-                    _statusPending[channel] = false;
-
-                    try
-                    {
-                        var status = new tStatusStruct();
-                        int result = _server.GetStatus(channel, ref status);
-                        if (result != (int)eUcanReturn.USBCAN_SUCCESSFUL)
-                            continue;
-
-                        string message = GetCanStatusMessage(status.m_wCanStatus);
-                        bool isOk = status.m_wCanStatus == (short)eUcanCanStatus.USBCAN_CANERR_OK
-                                    || string.IsNullOrWhiteSpace(message)
-                                    || message.IndexOf("no error", StringComparison.OrdinalIgnoreCase) >= 0;
-
-                        var handler = _channels[channel].OnCanError;
-                        handler?.Invoke(isOk ? null : message);
-                    }
-                    catch
-                    {
-                        // Ignore status read failures.
-                    }
-                }
-            }
-
-            private void RefreshHardwareInfo()
+            /// <summary>Caller must hold <see cref="_ioLock"/>.</summary>
+            private void RefreshHardwareInfo_NoLock()
             {
                 if (_server == null)
                     return;
@@ -736,21 +1113,53 @@ namespace CanTraceConverter.Services
                 _channels[1].Info = ch1;
             }
 
-            private tUcanChannelInfo ReadChannelInfo(byte channel)
-            {
-                RefreshHardwareInfo();
-                return _channels[channel].Info;
-            }
-
             private sealed class ChannelSlot
             {
-                public bool Open;
+                private volatile bool _open;
+                private uint _lastRawTime;
+                private bool _haveRawTime;
+                private long _timeBase;
+
+                /// <summary>Publishes the rest of the slot: written last on open, first on close.</summary>
+                public bool Open
+                {
+                    get => _open;
+                    set => _open = value;
+                }
+
                 public bool ListenOnly = true;
                 public bool FirmwareCyclicActive;
+                public double TimestampScaleMs = 1.0;
+                public int LastStatusKey = -1;
                 public tUcanChannelInfo Info;
-                public Action<CanMessageRecord> OnMessage;
-                public Action OnDisconnected;
-                public Action<string> OnCanError;
+                public volatile Action<CanMessageRecord> OnMessage;
+                public volatile Action OnDisconnected;
+                public volatile Action<CanBusStatus> OnBusStatus;
+
+                public void ResetTimeUnwrap()
+                {
+                    _haveRawTime = false;
+                    _lastRawTime = 0;
+                    _timeBase = 0;
+                }
+
+                /// <summary>
+                /// Turns the device's 32-bit tick counter into a monotonic value. The wrapper
+                /// types it as a signed int, so it would otherwise go negative partway through
+                /// a long session and wrap entirely soon after. RX thread only.
+                /// </summary>
+                public long UnwrapTime(int rawSigned)
+                {
+                    uint raw = unchecked((uint)rawSigned);
+
+                    if (_haveRawTime && raw < _lastRawTime)
+                        _timeBase += 0x1_0000_0000L;
+                    else
+                        _haveRawTime = true;
+
+                    _lastRawTime = raw;
+                    return _timeBase + raw;
+                }
             }
         }
     }

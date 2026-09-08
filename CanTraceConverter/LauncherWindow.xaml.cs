@@ -10,6 +10,20 @@ namespace CanTraceConverter
         public LauncherWindow()
         {
             InitializeComponent();
+            UpdateThemeButton();
+        }
+
+        private void BtnTheme_Click(object sender, RoutedEventArgs e)
+        {
+            ThemeManager.ToggleTheme();
+            UpdateThemeButton();
+        }
+
+        private void UpdateThemeButton()
+        {
+            btnTheme.Content = ThemeManager.IsDarkTheme
+                ? "Switch to Light Theme"
+                : "Switch to Dark Theme";
         }
 
         private void BtnNewMonitor_Click(object sender, RoutedEventArgs e)

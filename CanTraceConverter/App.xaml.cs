@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -10,19 +10,30 @@ namespace CanTraceConverter
     public partial class App : Application
     {
         private static int _shutdownCleanupDone;
+        private static int _errorDialogOpen;
 
         protected override void OnStartup(StartupEventArgs e)
         {
-            AppLog.Initialize();
-
+            // Handlers first: anything below can fail, and without them a startup fault
+            // terminates the process with no message and no log.
             AppDomain.CurrentDomain.UnhandledException += OnUnhandledException;
             AppDomain.CurrentDomain.ProcessExit += OnProcessExit;
             DispatcherUnhandledException += OnDispatcherUnhandledException;
             TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
             SessionEnding += OnSessionEnding;
 
+            AppLog.Initialize();
             AppLog.Info("USB-CAN Studio starting.");
-            ThemeManager.Initialize();
+
+            try
+            {
+                ThemeManager.Initialize();
+            }
+            catch (Exception ex)
+            {
+                // A corrupt user.config must not stop the app from opening.
+                AppLog.Warn(ex, "Theme initialization failed; continuing with the default theme.");
+            }
 
             base.OnStartup(e);
 
@@ -56,7 +67,9 @@ namespace CanTraceConverter
 
         private static void OnProcessExit(object sender, EventArgs e)
         {
-            // Last-chance cleanup if the process is terminating.
+            // Best-effort only: the CLR time-limits ProcessExit handlers, so this cannot be
+            // relied on to fully release the hardware. OnExit and per-window teardown do the
+            // real work; this just covers abnormal termination.
             ForceReleaseCanResources("ProcessExit");
         }
 
@@ -100,20 +113,54 @@ namespace CanTraceConverter
 
         private static void OnUnobservedTaskException(object sender, UnobservedTaskExceptionEventArgs e)
         {
+            // Runs on the finalizer thread — logging only, never a modal dialog from here.
             AppLog.Error(e.Exception, "Unobserved background task exception.");
             e.SetObserved();
-            ShowFatalError("Background task error", e.Exception);
         }
 
+        /// <summary>
+        /// Reports a fault without blocking the thread that raised it. A modal dialog on a
+        /// driver callback or finalizer thread would stall that thread indefinitely.
+        /// </summary>
         private static void ShowFatalError(string title, Exception ex)
         {
             var message = ex?.GetBaseException()?.Message ?? "Unknown error";
-            MessageBox.Show(
-                message + Environment.NewLine + Environment.NewLine +
-                "The application will continue when possible.",
-                title,
-                MessageBoxButton.OK,
-                MessageBoxImage.Error);
+
+            // One dialog at a time: a fault storm must not produce a wall of message boxes.
+            if (Interlocked.Exchange(ref _errorDialogOpen, 1) != 0)
+                return;
+
+            var dispatcher = Current?.Dispatcher;
+            if (dispatcher == null || dispatcher.HasShutdownStarted || dispatcher.HasShutdownFinished)
+            {
+                Interlocked.Exchange(ref _errorDialogOpen, 0);
+                return;
+            }
+
+            try
+            {
+                dispatcher.BeginInvoke(new Action(() =>
+                {
+                    try
+                    {
+                        MessageBox.Show(
+                            message + Environment.NewLine + Environment.NewLine +
+                            "The application will continue when possible.",
+                            title,
+                            MessageBoxButton.OK,
+                            MessageBoxImage.Error);
+                    }
+                    catch { /* ignore */ }
+                    finally
+                    {
+                        Interlocked.Exchange(ref _errorDialogOpen, 0);
+                    }
+                }));
+            }
+            catch
+            {
+                Interlocked.Exchange(ref _errorDialogOpen, 0);
+            }
         }
     }
 }

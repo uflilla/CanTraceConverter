@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="15.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <Import Project="$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props" Condition="Exists('$(MSBuildExtensionsPath)\$(MSBuildToolsVersion)\Microsoft.Common.props')" />
   <PropertyGroup>
@@ -94,7 +94,6 @@
     </Compile>
     <Compile Include="Helpers\OsVerisonFormatProvider.cs" />
     <Compile Include="Helpers\OSVERSIONINFO.cs" />
-    <Compile Include="Helpers\Program.cs" />
     <Compile Include="Helpers\SYSTEMTIME.cs" />
     <Compile Include="Helpers\SystemTimeFormatProvider.cs" />
     <Compile Include="Helpers\UcanChannelInfoFormatProvider.cs" />

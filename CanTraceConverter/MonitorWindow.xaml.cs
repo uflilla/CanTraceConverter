@@ -10,6 +10,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
+using System.Threading.Tasks;
 using CanTraceConverter.Models;
 using CanTraceConverter.Services;
 using Microsoft.Win32;
@@ -22,14 +23,16 @@ namespace CanTraceConverter
         private readonly CanBusService _bus = new CanBusService();
         private readonly CanMessageRepository _repository = new CanMessageRepository();
         private readonly TransmitListManager _transmitManager = new TransmitListManager();
-        private readonly Dictionary<uint, LiveCanRow> _liveRows = new Dictionary<uint, LiveCanRow>();
+        private readonly Dictionary<LiveRowKey, LiveCanRow> _liveRows = new Dictionary<LiveRowKey, LiveCanRow>();
         private readonly ObservableCollection<LiveCanRow> _liveCollection = new ObservableCollection<LiveCanRow>();
         private readonly ObservableCollection<CanTransmitRow> _transmitRows = new ObservableCollection<CanTransmitRow>();
         private readonly DispatcherTimer _uiTimer;
         private long _totalMessages;
-        private bool _dirty;
-        private bool _isClosing;
-        private bool _loggingEnabled;
+        private volatile bool _dirty;
+        private volatile bool _isClosing;
+        private volatile bool _loggingEnabled;
+        private bool _teardownComplete;
+        private CanBusStatus _busStatus = CanBusStatus.Ok;
 
         public MonitorWindow(SessionConfig config)
         {
@@ -53,9 +56,10 @@ namespace CanTraceConverter
             _uiTimer.Start();
 
             _bus.MessageReceived += OnMessageReceived;
-            _bus.StatusChanged += status => RunOnUiThread(() => txtStatus.Text = status);
-            _bus.CanErrorStatusChanged += OnCanErrorStatusChanged;
-            _bus.Disconnected += () => RunOnUiThread(OnDisconnected);
+            _bus.StatusChanged += OnBusStatusText;
+            _bus.BusStatusChanged += OnBusStatusChanged;
+            _bus.Disconnected += OnBusDisconnected;
+            _transmitManager.CyclicFaulted += OnCyclicFaulted;
 
             Loaded += (_, __) => StartSession();
         }
@@ -109,17 +113,34 @@ namespace CanTraceConverter
 
         private void UpdateSendPanelState()
         {
-            bool transmitAllowed = !_config.ListenOnly && _bus.IsConnected;
+            bool busOff = _busStatus.BlocksTransmit;
+            bool transmitAllowed = !_config.ListenOnly && _bus.IsConnected && !busOff;
 
             gridSendControls.IsEnabled = transmitAllowed;
-            txtSendDisabledNotice.Visibility = _config.ListenOnly ? Visibility.Visible : Visibility.Collapsed;
 
-            if (!_config.ListenOnly && !_bus.IsConnected)
+            if (_config.ListenOnly)
+            {
+                txtSendDisabledNotice.Text =
+                    "Transmit disabled — session started in listen-only mode. Start a new session with listen-only unchecked to send.";
                 txtSendDisabledNotice.Visibility = Visibility.Visible;
+            }
+            else if (!_bus.IsConnected)
+            {
+                txtSendDisabledNotice.Text = "Transmit disabled — not connected to CAN hardware.";
+                txtSendDisabledNotice.Visibility = Visibility.Visible;
+            }
+            else if (busOff)
+            {
+                // The controller has left the bus: writes would be queued but never sent.
+                txtSendDisabledNotice.Text = "Transmit disabled — controller is bus off. Use Reset CAN Controller to rejoin the bus.";
+                txtSendDisabledNotice.Visibility = Visibility.Visible;
+            }
+            else
+            {
+                txtSendDisabledNotice.Visibility = Visibility.Collapsed;
+            }
 
-            txtSendDisabledNotice.Text = _config.ListenOnly
-                ? "Transmit disabled — session started in listen-only mode. Start a new session with listen-only unchecked to send."
-                : "Transmit disabled — not connected to CAN hardware.";
+            btnResetController.Visibility = busOff && _bus.IsConnected ? Visibility.Visible : Visibility.Collapsed;
         }
 
         private void RunOnUiThread(Action action)
@@ -152,6 +173,7 @@ namespace CanTraceConverter
                 txtConnectionStatus.Foreground = System.Windows.Media.Brushes.Green;
                 txtLogPath.Text = Path.GetFileName(_repository.DatabasePath);
                 btnReconnect.Visibility = Visibility.Collapsed;
+                _busStatus = CanBusStatus.Ok;
                 txtBusError.Text = string.Empty;
                 txtBusError.Visibility = Visibility.Collapsed;
                 UpdateSendPanelState();
@@ -166,6 +188,7 @@ namespace CanTraceConverter
         private void ShowConnectionFailed(string message)
         {
             _loggingEnabled = false;
+            _busStatus = CanBusStatus.Ok;
             AppLog.Warn("Monitor connection failed: {0}", message);
             txtConnectionStatus.Text = "Not connected";
             txtConnectionStatus.Foreground = System.Windows.Media.Brushes.Red;
@@ -192,18 +215,21 @@ namespace CanTraceConverter
 
             System.Threading.Interlocked.Increment(ref _totalMessages);
 
-            uint id = record.CanId;
+            // TX echoes and received frames with the same identifier are different traffic:
+            // sharing a row made DIR flicker and mixed two unrelated cadences into PERIOD.
+            var key = new LiveRowKey(record.CanId, record.Direction == "TX");
+
             lock (_liveRows)
             {
-                if (!_liveRows.TryGetValue(id, out var row))
+                if (!_liveRows.TryGetValue(key, out var row))
                 {
                     row = new LiveCanRow
                     {
-                        CanId = id,
+                        CanId = record.CanId,
                         CanIdDisplay = record.CanIdDisplay,
                         IsExtended = record.IsExtended
                     };
-                    _liveRows[id] = row;
+                    _liveRows[key] = row;
                     RunOnUiThread(() =>
                     {
                         if (!_isClosing)
@@ -233,23 +259,87 @@ namespace CanTraceConverter
             _dirty = true;
         }
 
-        private void OnCanErrorStatusChanged(string message)
+        private void OnBusStatusText(string status)
+        {
+            RunOnUiThread(() =>
+            {
+                if (!_isClosing)
+                    txtStatus.Text = status;
+            });
+        }
+
+        private void OnBusDisconnected()
+        {
+            RunOnUiThread(OnDisconnected);
+        }
+
+        private void OnBusStatusChanged(CanBusStatus status)
         {
             RunOnUiThread(() =>
             {
                 if (_isClosing)
                     return;
 
-                if (string.IsNullOrWhiteSpace(message))
+                var previous = _busStatus;
+                _busStatus = status ?? CanBusStatus.Ok;
+
+                if (!_busStatus.IsError)
                 {
                     txtBusError.Text = string.Empty;
                     txtBusError.Visibility = Visibility.Collapsed;
-                    return;
+                }
+                else
+                {
+                    txtBusError.Text = "CAN Error: " + _busStatus.Message;
+                    txtBusError.Visibility = Visibility.Visible;
                 }
 
-                txtBusError.Text = "CAN Error: " + message;
-                txtBusError.Visibility = Visibility.Visible;
+                // Entering bus-off stops cyclic TX: the frames would never reach the wire.
+                if (_busStatus.BlocksTransmit && !previous.BlocksTransmit)
+                {
+                    AppLog.Warn("Bus off on device {0} CH{1}; stopping cyclic transmit.",
+                        _config.DeviceNumber, _config.Channel);
+                    StopAllCyclicInternal();
+                }
+
+                UpdateSendPanelState();
             });
+        }
+
+        private void OnCyclicFaulted(Guid rowId, string reason)
+        {
+            RunOnUiThread(() =>
+            {
+                if (_isClosing)
+                    return;
+
+                foreach (var row in _transmitRows)
+                {
+                    if (row.Id == rowId)
+                    {
+                        row.IsCyclicRunning = false;
+                        break;
+                    }
+                }
+
+                if (!string.IsNullOrEmpty(reason))
+                    txtStatus.Text = reason;
+            });
+        }
+
+        private void BtnResetController_Click(object sender, RoutedEventArgs e)
+        {
+            if (!_bus.ResetController(out string error))
+            {
+                MessageBox.Show(error ?? "Could not reset the CAN controller.", "Reset",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            _busStatus = CanBusStatus.Ok;
+            txtBusError.Text = string.Empty;
+            txtBusError.Visibility = Visibility.Collapsed;
+            UpdateSendPanelState();
         }
 
         private void UiTimer_Tick(object sender, EventArgs e)
@@ -263,13 +353,17 @@ namespace CanTraceConverter
                 try { dgLive.Items.Refresh(); } catch { /* ignore during shutdown */ }
             }
 
-            long saved = _loggingEnabled ? _repository.TotalWritten : 0;
-            txtLiveStats.Text = $"{_liveCollection.Count} IDs · {_totalMessages:N0} total · {saved:N0} saved";
+            long saved = _repository.IsOpen ? _repository.TotalWritten : 0;
+            long dropped = _repository.TotalDropped;
+            txtLiveStats.Text = dropped > 0
+                ? $"{_liveCollection.Count} rows · {_totalMessages:N0} total · {saved:N0} saved · {dropped:N0} DROPPED"
+                : $"{_liveCollection.Count} rows · {_totalMessages:N0} total · {saved:N0} saved";
         }
 
         private void OnDisconnected()
         {
             _loggingEnabled = false;
+            _busStatus = CanBusStatus.Ok;
             AppLog.Warn("CAN monitor disconnected from hardware.");
             txtConnectionStatus.Text = "Disconnected";
             txtConnectionStatus.Foreground = System.Windows.Media.Brushes.OrangeRed;
@@ -443,7 +537,7 @@ namespace CanTraceConverter
             dgTransmit.CommitEdit(DataGridEditingUnit.Row, true);
         }
 
-        private void BtnAnalyze_Click(object sender, RoutedEventArgs e)
+        private async void BtnAnalyze_Click(object sender, RoutedEventArgs e)
         {
             if (!_repository.IsOpen)
             {
@@ -454,7 +548,7 @@ namespace CanTraceConverter
 
             try
             {
-                _repository.Flush();
+                await Task.Run(() => _repository.Flush());
             }
             catch (Exception ex)
             {
@@ -466,7 +560,7 @@ namespace CanTraceConverter
             AnalysisWindow.Open(this, _repository.DatabasePath, AnalysisSource.Database);
         }
 
-        private void BtnExport_Click(object sender, RoutedEventArgs e)
+        private async void BtnExport_Click(object sender, RoutedEventArgs e)
         {
             if (!_repository.IsOpen)
             {
@@ -477,7 +571,7 @@ namespace CanTraceConverter
 
             try
             {
-                _repository.Flush();
+                await Task.Run(() => _repository.Flush());
             }
             catch (Exception ex)
             {
@@ -499,16 +593,31 @@ namespace CanTraceConverter
             if (dlg.ShowDialog() != true)
                 return;
 
+            string target = dlg.FileName;
+            double? from_ = dialog.TimeFromMs;
+            double? to = dialog.TimeToMs;
+
+            btnExport.IsEnabled = false;
+            txtStatus.Text = "Exporting…";
             try
             {
-                _repository.ExportToText(dlg.FileName, dialog.TimeFromMs, dialog.TimeToMs);
-                MessageBox.Show($"Exported to:\n{dlg.FileName}", "Export complete",
+                // Streams row by row, so a long session can take a while — keep the UI alive.
+                await Task.Run(() => _repository.ExportToText(target, from_, to));
+                txtStatus.Text = $"Exported to {Path.GetFileName(target)}.";
+                MessageBox.Show($"Exported to:\n{target}", "Export complete",
                     MessageBoxButton.OK, MessageBoxImage.Information);
             }
             catch (Exception ex)
             {
+                AppLog.Error(ex, "Session export failed.");
+                txtStatus.Text = "Export failed.";
                 MessageBox.Show($"Export failed:\n{ex.Message}", "Error",
                     MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            finally
+            {
+                if (!_isClosing)
+                    btnExport.IsEnabled = true;
             }
         }
 
@@ -529,23 +638,39 @@ namespace CanTraceConverter
             }
         }
 
-        private void BtnReconnect_Click(object sender, RoutedEventArgs e)
+        private async void BtnReconnect_Click(object sender, RoutedEventArgs e)
         {
+            btnReconnect.IsEnabled = false;
+            txtStatus.Text = "Reconnecting…";
             try
             {
-                // Ensure no TX continues across reconnect.
+                // Ensure no TX continues across reconnect. Releasing the lease joins the
+                // receive thread and waits on the driver, so it does not belong on the UI thread.
                 StopAllCyclicInternal();
-                _bus.Disconnect();
+                await Task.Run(() => _bus.Disconnect());
                 StartSession();
             }
             catch (Exception ex)
             {
                 ShowConnectionFailed(ex.Message);
             }
+            finally
+            {
+                if (!_isClosing)
+                    btnReconnect.IsEnabled = true;
+            }
         }
 
         private void Window_Closing(object sender, System.ComponentModel.CancelEventArgs e)
         {
+            if (_teardownComplete)
+                return;
+
+            // Releasing the session means joining transmit threads, a 200 ms driver shutdown
+            // and a SQLite drain. Doing that inline froze the UI for as long as it took, so
+            // the close is deferred until a background teardown finishes.
+            e.Cancel = true;
+
             if (_isClosing)
                 return;
 
@@ -554,22 +679,75 @@ namespace CanTraceConverter
 
             try { _uiTimer.Stop(); } catch { /* ignore */ }
 
-            // 1) Stop all software cyclic TX threads before touching the bus.
-            try { StopAllCyclicInternal(); } catch { /* ignore */ }
-
+            // Detach callbacks first so nothing arrives mid-teardown.
             try { _bus.MessageReceived -= OnMessageReceived; } catch { /* ignore */ }
-            try { _bus.CanErrorStatusChanged -= OnCanErrorStatusChanged; } catch { /* ignore */ }
+            try { _bus.BusStatusChanged -= OnBusStatusChanged; } catch { /* ignore */ }
+            try { _bus.StatusChanged -= OnBusStatusText; } catch { /* ignore */ }
+            try { _bus.Disconnected -= OnBusDisconnected; } catch { /* ignore */ }
+            try { _transmitManager.CyclicFaulted -= OnCyclicFaulted; } catch { /* ignore */ }
+            try { _transmitRows.CollectionChanged -= TransmitRows_CollectionChanged; } catch { /* ignore */ }
+            foreach (var row in _transmitRows)
+            {
+                try { row.PropertyChanged -= TransmitRow_PropertyChanged; } catch { /* ignore */ }
+            }
+
+            txtConnectionStatus.Text = "Closing session…";
+            txtStatus.Text = "Stopping transmit, releasing hardware and flushing the log…";
+            IsEnabled = false;
+
+            Task.Run((Action)TeardownSession).ContinueWith(_ =>
+            {
+                try
+                {
+                    Dispatcher.BeginInvoke(new Action(() =>
+                    {
+                        _teardownComplete = true;
+                        Close();
+                    }));
+                }
+                catch (Exception ex)
+                {
+                    // The dispatcher is already gone — the app is shutting down anyway, and
+                    // App.OnExit releases the hardware.
+                    AppLog.Warn(ex, "Could not complete the deferred window close.");
+                }
+            });
+        }
+
+        /// <summary>Runs on a background thread; must never throw.</summary>
+        private void TeardownSession()
+        {
+            // 1) Stop all software cyclic TX threads before touching the bus. Only the
+            //    manager is touched here — the bound row collection belongs to the UI thread.
+            try { _transmitManager.StopAll(); } catch (Exception ex) { AppLog.Warn(ex, "Stopping cyclic TX failed."); }
 
             // 2) Disconnect CAN: stops firmware cyclic + releases channel/hardware lease.
-            try { _bus.Dispose(); } catch { /* ignore */ }
+            try { _bus.Dispose(); } catch (Exception ex) { AppLog.Warn(ex, "Releasing the CAN lease failed."); }
 
             // 3) Flush and close SQLite so no writer thread remains.
             try { _repository.Flush(); } catch (Exception ex) { AppLog.Warn(ex, "Final session flush failed."); }
-            try { _repository.Dispose(); } catch { /* ignore */ }
+            try { _repository.Dispose(); } catch (Exception ex) { AppLog.Warn(ex, "Closing the session database failed."); }
 
             try { _transmitManager.Dispose(); } catch { /* ignore */ }
 
             AppLog.Info("Monitor window closed; CAN session resources released.");
+        }
+
+        /// <summary>Identifies a live row. TX echoes are tracked separately from RX frames.</summary>
+        private readonly struct LiveRowKey : IEquatable<LiveRowKey>
+        {
+            private readonly uint _canId;
+            private readonly bool _isTx;
+
+            public LiveRowKey(uint canId, bool isTx)
+            {
+                _canId = canId;
+                _isTx = isTx;
+            }
+
+            public bool Equals(LiveRowKey other) => _canId == other._canId && _isTx == other._isTx;
+            public override bool Equals(object obj) => obj is LiveRowKey other && Equals(other);
+            public override int GetHashCode() => unchecked((int)_canId * 2 + (_isTx ? 1 : 0));
         }
     }
 }

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Threading;
@@ -13,6 +14,8 @@ namespace CanTraceConverter
     {
         public SessionConfig SessionConfig { get; private set; }
         private int _autoRetryCount;
+        private bool _scanning;
+        private bool _closed;
 
         public SessionSetupDialog()
         {
@@ -20,26 +23,38 @@ namespace CanTraceConverter
             txtLogDir.Text = SessionConfig.DefaultLogDirectory;
             txtTitle.TextChanged += (_, __) => UpdatePreview();
             txtLogDir.TextChanged += (_, __) => UpdatePreview();
+            cmbDevice.SelectionChanged += (_, __) => UpdateChannelAvailability();
             Loaded += OnLoaded;
+            Closed += (_, __) => _closed = true;
         }
 
-        private void OnLoaded(object sender, RoutedEventArgs e)
+        private async void OnLoaded(object sender, RoutedEventArgs e)
         {
-            RefreshDevices(scheduleRetry: true);
             UpdatePreview();
+            await RefreshDevicesAsync(scheduleRetry: true);
         }
 
-        private void BtnRefreshDevices_Click(object sender, RoutedEventArgs e)
+        private async void BtnRefreshDevices_Click(object sender, RoutedEventArgs e)
         {
-            RefreshDevices(scheduleRetry: false);
+            await RefreshDevicesAsync(scheduleRetry: false);
         }
 
-        private void RefreshDevices(bool scheduleRetry)
+        /// <summary>
+        /// Scans on a background thread: enumeration opens and closes real hardware, and the
+        /// driver's shutdown alone blocks for 200 ms per device.
+        /// </summary>
+        private async Task RefreshDevicesAsync(bool scheduleRetry)
         {
+            if (_scanning)
+                return;
+
+            _scanning = true;
+            SetScanningState(true);
+
             DeviceEnumerationResult scan;
             try
             {
-                scan = CanBusService.EnumerateDevices();
+                scan = await Task.Run(() => CanBusService.EnumerateDevices());
             }
             catch (Exception ex)
             {
@@ -48,18 +63,42 @@ namespace CanTraceConverter
                 {
                     DriverAvailable = false,
                     Warning = $"Unable to scan for devices: {ex.Message}",
-                    Devices = new[]
-                    {
-                        new CanDeviceItem
-                        {
-                            DeviceNumber = 255,
-                            SerialNumber = 0,
-                            Label = "First available device (auto-detect)"
-                        }
-                    }
+                    Devices = new[] { CreateFallbackDevice() }
                 };
             }
+            finally
+            {
+                _scanning = false;
+            }
 
+            if (_closed)
+                return;
+
+            SetScanningState(false);
+            ApplyScanResult(scan, scheduleRetry);
+        }
+
+        private static CanDeviceItem CreateFallbackDevice() => new CanDeviceItem
+        {
+            DeviceNumber = 255,
+            SerialNumber = 0,
+            Label = "First available device (auto-detect)"
+        };
+
+        private void SetScanningState(bool scanning)
+        {
+            btnRefreshDevices.IsEnabled = !scanning;
+            btnStart.IsEnabled = !scanning;
+
+            if (scanning)
+            {
+                txtDeviceWarning.Text = "Scanning for USB-CAN devices…";
+                borderDeviceWarning.Visibility = Visibility.Visible;
+            }
+        }
+
+        private void ApplyScanResult(DeviceEnumerationResult scan, bool scheduleRetry)
+        {
             var devices = new List<CanDeviceItem>(scan.Devices ?? Array.Empty<CanDeviceItem>());
             bool onlyFallback = devices.Count == 0
                 || (devices.Count == 1 && devices[0].DeviceNumber == 255 && string.IsNullOrEmpty(devices[0].Label) == false
@@ -67,12 +106,7 @@ namespace CanTraceConverter
 
             if (devices.Count == 0)
             {
-                devices.Add(new CanDeviceItem
-                {
-                    DeviceNumber = 255,
-                    SerialNumber = 0,
-                    Label = "First available device (auto-detect)"
-                });
+                devices.Add(CreateFallbackDevice());
                 onlyFallback = true;
             }
 
@@ -88,6 +122,7 @@ namespace CanTraceConverter
                     selectedIndex = idx;
             }
             cmbDevice.SelectedIndex = selectedIndex;
+            UpdateChannelAvailability();
 
             if (!string.IsNullOrWhiteSpace(scan.Warning))
             {
@@ -111,13 +146,32 @@ namespace CanTraceConverter
                 _autoRetryCount++;
                 var delayMs = 250 * _autoRetryCount;
                 var timer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(delayMs) };
-                timer.Tick += (s, __) =>
+                timer.Tick += async (s, __) =>
                 {
                     timer.Stop();
-                    if (IsLoaded)
-                        RefreshDevices(scheduleRetry: true);
+                    if (IsLoaded && !_closed)
+                        await RefreshDevicesAsync(scheduleRetry: true);
                 };
                 timer.Start();
+            }
+        }
+
+        /// <summary>
+        /// Single-channel modules (GW-001/GW-002/USB-CANmodul1) have no CH1: offering it only
+        /// produces an ILLCHANNEL error at InitCan.
+        /// </summary>
+        private void UpdateChannelAvailability()
+        {
+            var device = cmbDevice.SelectedItem as CanDeviceItem;
+            bool twoChannels = device?.SupportsTwoChannels ?? true;
+
+            if (cmbChannel.Items.Count > 1 && cmbChannel.Items[1] is ComboBoxItem ch1Item)
+            {
+                ch1Item.IsEnabled = twoChannels;
+                ch1Item.ToolTip = twoChannels ? null : "This module has only one CAN channel.";
+
+                if (!twoChannels && cmbChannel.SelectedIndex == 1)
+                    cmbChannel.SelectedIndex = 0;
             }
         }
 
@@ -162,6 +216,13 @@ namespace CanTraceConverter
             int baud = 500;
             if (baudItem?.Tag != null)
                 int.TryParse(baudItem.Tag.ToString(), out baud);
+
+            if (validate && channel == 1 && device != null && !device.SupportsTwoChannels)
+            {
+                MessageBox.Show("This module has only one CAN channel. Select CH0.", "Channel unavailable",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                return null;
+            }
 
             return new SessionConfig
             {

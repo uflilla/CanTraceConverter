@@ -8,8 +8,14 @@ namespace CanTraceConverter.Services
 {
     public sealed class TransmitListManager : IDisposable
     {
+        private const uint StandardIdMax = 0x7FF;
+        private const uint ExtendedIdMax = 0x1FFFFFFF;
+
         private readonly Dictionary<Guid, PeriodicTransmitter> _cyclics = new Dictionary<Guid, PeriodicTransmitter>();
         private CanBusService _bus;
+
+        /// <summary>Raised when a cyclic transmitter stops on its own (bus-off, TX failure).</summary>
+        public event Action<Guid, string> CyclicFaulted;
 
         public void AttachBus(CanBusService bus) => _bus = bus;
 
@@ -33,11 +39,22 @@ namespace CanTraceConverter.Services
                 return false;
             }
 
-            string idText = row.CanIdHex?.Trim().Replace("h", "").Replace("0x", "");
+            string idText = NormalizeIdText(row.CanIdHex);
             if (string.IsNullOrEmpty(idText) ||
                 !uint.TryParse(idText, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out canId))
             {
-                error = "Invalid CAN ID.";
+                error = "Invalid CAN ID. Enter a hexadecimal identifier, for example 1A0.";
+                return false;
+            }
+
+            // Range depends on the frame format, so an out-of-range ID is reported as the
+            // input problem it is rather than as a generic transmit failure.
+            uint max = extended ? ExtendedIdMax : StandardIdMax;
+            if (canId > max)
+            {
+                error = extended
+                    ? $"CAN ID {canId:X} is out of range. Extended identifiers stop at {ExtendedIdMax:X}."
+                    : $"CAN ID {canId:X} is out of range. Standard identifiers stop at {StandardIdMax:X} — tick Ext for a 29-bit identifier.";
                 return false;
             }
 
@@ -53,19 +70,46 @@ namespace CanTraceConverter.Services
             return true;
         }
 
+        private static string NormalizeIdText(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return null;
+
+            string trimmed = text.Trim();
+            if (trimmed.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+                trimmed = trimmed.Substring(2);
+            if (trimmed.EndsWith("h", StringComparison.OrdinalIgnoreCase))
+                trimmed = trimmed.Substring(0, trimmed.Length - 1);
+
+            return trimmed.Trim();
+        }
+
         public bool TrySendOnce(CanTransmitRow row, out string error)
         {
             error = null;
-            if (_bus == null || !_bus.IsConnected)
+            var bus = _bus;
+            if (bus == null || !bus.IsConnected)
             {
                 error = "Not connected to CAN hardware.";
+                return false;
+            }
+
+            if (bus.ListenOnly)
+            {
+                error = "Session is in listen-only mode.";
+                return false;
+            }
+
+            if (bus.BusStatus.BlocksTransmit)
+            {
+                error = "Cannot transmit: " + bus.BusStatus.Message + ". Reset the CAN controller first.";
                 return false;
             }
 
             if (!TryParse(row, out uint id, out byte dlc, out byte[] data, out bool ext, out error))
                 return false;
 
-            if (!_bus.SendOnce(id, dlc, data, ext, false))
+            if (!bus.SendOnce(id, dlc, data, ext, false))
             {
                 error = "Failed to send message.";
                 return false;
@@ -83,9 +127,22 @@ namespace CanTraceConverter.Services
             if (row.IsCyclicRunning)
                 return true;
 
-            if (_bus == null || !_bus.IsConnected)
+            var bus = _bus;
+            if (bus == null || !bus.IsConnected)
             {
                 error = "Not connected to CAN hardware.";
+                return false;
+            }
+
+            if (bus.ListenOnly)
+            {
+                error = "Session is in listen-only mode.";
+                return false;
+            }
+
+            if (bus.BusStatus.BlocksTransmit)
+            {
+                error = "Cannot transmit: " + bus.BusStatus.Message + ". Reset the CAN controller first.";
                 return false;
             }
 
@@ -100,9 +157,11 @@ namespace CanTraceConverter.Services
                     return true;
                 }
 
+                var rowId = row.Id;
                 var transmitter = new PeriodicTransmitter();
-                transmitter.Start(_bus, row.IntervalMs, id, dlc, data, ext);
-                _cyclics[row.Id] = transmitter;
+                transmitter.Faulted += reason => CyclicFaulted?.Invoke(rowId, reason);
+                transmitter.Start(bus, row.IntervalMs, id, dlc, data, ext);
+                _cyclics[rowId] = transmitter;
             }
 
             row.IsCyclicRunning = true;
@@ -114,44 +173,61 @@ namespace CanTraceConverter.Services
             if (row == null)
                 return;
 
+            PeriodicTransmitter transmitter = null;
             lock (_cyclics)
             {
-                if (_cyclics.TryGetValue(row.Id, out var transmitter))
-                {
-                    transmitter.Stop();
-                    transmitter.Dispose();
+                if (_cyclics.TryGetValue(row.Id, out transmitter))
                     _cyclics.Remove(row.Id);
-                }
             }
 
+            // Stop outside the lock: Stop() joins the transmit thread.
+            StopSafely(transmitter);
             row.IsCyclicRunning = false;
         }
 
         public void StopAll()
         {
+            PeriodicTransmitter[] transmitters;
             lock (_cyclics)
             {
-                foreach (var transmitter in _cyclics.Values)
-                {
-                    try
-                    {
-                        transmitter.Stop();
-                        transmitter.Dispose();
-                    }
-                    catch
-                    {
-                        // Ignore shutdown errors.
-                    }
-                }
+                transmitters = new PeriodicTransmitter[_cyclics.Count];
+                _cyclics.Values.CopyTo(transmitters, 0);
                 _cyclics.Clear();
             }
+
+            // Signal every transmitter first, then join — so N transmitters cost one
+            // timeout in total rather than one each.
+            foreach (var transmitter in transmitters)
+            {
+                try { transmitter.RequestStop(); } catch { /* ignore */ }
+            }
+
+            foreach (var transmitter in transmitters)
+                StopSafely(transmitter);
 
             // Always clear device-side cyclic TX if it was started.
             try { _bus?.StopPeriodicFirmware(); } catch { /* ignore */ }
         }
 
+        private static void StopSafely(PeriodicTransmitter transmitter)
+        {
+            if (transmitter == null)
+                return;
+
+            try
+            {
+                transmitter.Stop();
+                transmitter.Dispose();
+            }
+            catch (Exception ex)
+            {
+                AppLog.Warn(ex, "Stopping a cyclic transmitter failed.");
+            }
+        }
+
         public void Dispose()
         {
+            CyclicFaulted = null;
             StopAll();
             _bus = null;
         }

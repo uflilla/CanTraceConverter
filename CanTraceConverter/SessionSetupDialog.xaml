@@ -36,7 +36,7 @@
           </Grid.ColumnDefinitions>
           <ComboBox x:Name="cmbDevice" Grid.Column="0" Margin="0,0,8,0"
                     Style="{StaticResource ModernComboBox}" DisplayMemberPath="DisplayName" />
-          <Button Grid.Column="1" MinWidth="100" Click="BtnRefreshDevices_Click"
+          <Button x:Name="btnRefreshDevices" Grid.Column="1" MinWidth="100" Click="BtnRefreshDevices_Click"
                   Content="Refresh" Style="{StaticResource SecondaryButton}" />
         </Grid>
 
@@ -91,7 +91,7 @@
     <StackPanel Grid.Row="2" Margin="0,16,0,0" HorizontalAlignment="Right" Orientation="Horizontal">
       <Button MinWidth="100" Margin="0,0,12,0" Click="BtnCancel_Click"
               Content="Cancel" IsCancel="True" Style="{StaticResource SecondaryButton}" />
-      <Button MinWidth="100" Click="BtnStart_Click" Content="Start"
+      <Button x:Name="btnStart" MinWidth="100" Click="BtnStart_Click" Content="Start"
               IsDefault="True" Style="{StaticResource ModernButton}" />
     </StackPanel>
 

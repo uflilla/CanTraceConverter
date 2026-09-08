@@ -8,31 +8,32 @@ namespace CanTraceConverter.Services
 {
     public static class CanMessageHelper
     {
+        /// <summary>
+        /// Maps a hardware message to a record.
+        /// </summary>
+        /// <param name="timestampScaleMs">Milliseconds per hardware tick, resolved once when
+        /// the channel was opened (1.0 normally, 0.1 for a G4 high-resolution timer). Passing
+        /// it in avoids re-reading a channel-info struct that another thread may be rewriting.</param>
+        /// <param name="unwrappedTicks">Tick count already corrected for 32-bit wrap-around.</param>
         public static CanMessageRecord FromHardwareMessage(
             tCanMsgStruct msg,
-            tUcanHardwareInfoEx hwInfo,
-            tUcanChannelInfo channelInfo,
+            double timestampScaleMs,
+            long unwrappedTicks,
             DateTime wallTime)
         {
             bool isTx = (msg.m_bFF & (byte)eUcanMsgFrameFormat.USBCAN_MSG_FF_ECHO) != 0;
             bool isExtended = (msg.m_bFF & (byte)eUcanMsgFrameFormat.USBCAN_MSG_FF_EXT) != 0;
             bool isRtr = (msg.m_bFF & (byte)eUcanMsgFrameFormat.USBCAN_MSG_FF_RTR) != 0;
 
-            double timestampMs = msg.m_dwTime;
-            if (CheckIs_G4(hwInfo) &&
-                (channelInfo.m_bMode & (byte)tUcanMode.kUcanModeHighResTimer) != 0)
-            {
-                timestampMs = msg.m_dwTime / 10.0;
-            }
-
             var data = new byte[8];
-            Array.Copy(msg.m_bData, data, 8);
+            if (msg.m_bData != null)
+                Array.Copy(msg.m_bData, data, Math.Min(8, msg.m_bData.Length));
 
             return new CanMessageRecord
             {
                 Direction = isTx ? "TX" : "RX",
-                TimestampMs = timestampMs,
-                RawHardwareTime = msg.m_dwTime,
+                TimestampMs = unwrappedTicks * timestampScaleMs,
+                RawHardwareTime = unwrappedTicks,
                 WallTime = wallTime,
                 CanId = (uint)msg.m_dwID,
                 IsExtended = isExtended,
@@ -153,7 +154,9 @@ namespace CanTraceConverter.Services
         public long Id { get; set; }
         public string Direction { get; set; }
         public double TimestampMs { get; set; }
-        public int RawHardwareTime { get; set; }
+
+        /// <summary>Device tick counter, unwrapped to 64 bits so it stays monotonic.</summary>
+        public long RawHardwareTime { get; set; }
         public DateTime WallTime { get; set; }
         public uint CanId { get; set; }
         public bool IsExtended { get; set; }

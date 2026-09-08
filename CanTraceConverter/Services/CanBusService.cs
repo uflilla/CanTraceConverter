@@ -13,16 +13,39 @@ namespace CanTraceConverter.Services
         private volatile bool _connected;
         private volatile bool _disposed;
         private SessionConfig _config;
+        private CanBusStatus _busStatus = CanBusStatus.Ok;
 
         public event Action<CanMessageRecord> MessageReceived;
         public event Action<string> StatusChanged;
         public event Action Disconnected;
-        public event Action<string> CanErrorStatusChanged;
+        public event Action<CanBusStatus> BusStatusChanged;
 
-        public bool IsConnected => _connected && _lease != null && _lease.IsConnected;
+        public bool IsConnected
+        {
+            get
+            {
+                var lease = _lease;
+                return _connected && lease != null && lease.IsConnected;
+            }
+        }
+
         public bool ListenOnly => _config?.ListenOnly ?? true;
-        public tUcanHardwareInfoEx HardwareInfo => _lease != null ? _lease.HardwareInfo : default;
-        public tUcanChannelInfo ChannelInfo => _lease != null ? _lease.ChannelInfo : default;
+
+        /// <summary>False while the controller is bus-off — frames would not reach the wire.</summary>
+        public bool CanTransmit => IsConnected && !ListenOnly && !_busStatus.BlocksTransmit;
+
+        public CanBusStatus BusStatus => _busStatus;
+
+        public tUcanHardwareInfoEx HardwareInfo
+        {
+            get { var lease = _lease; return lease != null ? lease.HardwareInfo : default; }
+        }
+
+        public tUcanChannelInfo ChannelInfo
+        {
+            get { var lease = _lease; return lease != null ? lease.ChannelInfo : default; }
+        }
+
         public SessionConfig Config => _config;
         public string LastError { get; private set; }
 
@@ -33,6 +56,7 @@ namespace CanTraceConverter.Services
 
             LastError = null;
             _config = config;
+            _busStatus = CanBusStatus.Ok;
 
             try
             {
@@ -48,7 +72,7 @@ namespace CanTraceConverter.Services
                         config,
                         OnLeaseMessage,
                         OnLeaseDisconnected,
-                        OnLeaseCanError,
+                        OnLeaseBusStatus,
                         out var lease,
                         out string error))
                 {
@@ -88,42 +112,68 @@ namespace CanTraceConverter.Services
                 return;
 
             _connected = false;
+            _busStatus = CanBusStatus.Ok;
             RaiseStatus("USB device disconnected");
             AppLog.Warn("CAN bus disconnected from shared hardware lease.");
-            try { CanErrorStatusChanged?.Invoke(null); } catch { /* ignore */ }
+            try { BusStatusChanged?.Invoke(CanBusStatus.Ok); } catch { /* ignore */ }
             try { Disconnected?.Invoke(); } catch { /* ignore subscriber errors */ }
         }
 
-        private void OnLeaseCanError(string message)
+        private void OnLeaseBusStatus(CanBusStatus status)
         {
-            try { CanErrorStatusChanged?.Invoke(message); } catch { /* ignore */ }
+            _busStatus = status ?? CanBusStatus.Ok;
+            try { BusStatusChanged?.Invoke(_busStatus); } catch { /* ignore */ }
         }
 
         public bool SendOnce(uint canId, byte dlc, byte[] data, bool extended, bool rtr)
         {
-            if (!IsConnected || ListenOnly || _lease == null)
+            // Read the lease once: Disconnect() can null it between a check and a use.
+            var lease = _lease;
+            if (lease == null || !_connected || !lease.IsConnected || ListenOnly)
                 return false;
 
-            return _lease.SendOnce(canId, dlc, data, extended, rtr);
+            return lease.SendOnce(canId, dlc, data, extended, rtr);
         }
 
         public bool SendPeriodicFirmware(int intervalMs, uint canId, byte dlc, byte[] data, bool extended)
         {
-            if (!IsConnected || ListenOnly || _lease == null)
+            var lease = _lease;
+            if (lease == null || !_connected || !lease.IsConnected || ListenOnly)
                 return false;
 
-            return _lease.SendPeriodicFirmware(intervalMs, canId, dlc, data, extended);
+            return lease.SendPeriodicFirmware(intervalMs, canId, dlc, data, extended);
         }
 
         public void StopPeriodicFirmware()
         {
-            _lease?.StopPeriodicFirmware();
+            var lease = _lease;
+            lease?.StopPeriodicFirmware();
+        }
+
+        /// <summary>Resets the CAN controller — the documented recovery path from bus-off.</summary>
+        public bool ResetController(out string error)
+        {
+            var lease = _lease;
+            if (lease == null || !_connected)
+            {
+                error = "Not connected to CAN hardware.";
+                return false;
+            }
+
+            if (!lease.ResetController(out error))
+                return false;
+
+            _busStatus = CanBusStatus.Ok;
+            try { BusStatusChanged?.Invoke(CanBusStatus.Ok); } catch { /* ignore */ }
+            RaiseStatus("CAN controller reset.");
+            return true;
         }
 
         public void Disconnect()
         {
             // Mark disconnected first so any TX threads observing IsConnected stop immediately.
             _connected = false;
+            _busStatus = CanBusStatus.Ok;
 
             var lease = Interlocked.Exchange(ref _lease, null);
             if (lease != null)
@@ -132,7 +182,7 @@ namespace CanTraceConverter.Services
                 UsbCanHardwareManager.Release(lease);
             }
 
-            try { CanErrorStatusChanged?.Invoke(null); } catch { /* ignore */ }
+            try { BusStatusChanged?.Invoke(CanBusStatus.Ok); } catch { /* ignore */ }
             RaiseStatus("Disconnected");
             AppLog.Info("CAN bus service disconnected.");
         }
@@ -165,13 +215,19 @@ namespace CanTraceConverter.Services
 
             result.DriverAvailable = true;
 
+            // Opening hardware during a scan would take the module away from a live session
+            // for the duration, so discovery stays passive whenever anything is connected.
+            bool sessionsOpen = UsbCanHardwareManager.HasOpenModules;
+
             void AddDevice(tUcanHardwareInfoEx hw, bool isUsed)
             {
-                if (found.Exists(d => d.DeviceNumber == hw.m_bDeviceNr))
+                var existing = found.Find(d => d.DeviceNumber == hw.m_bDeviceNr);
+                if (existing != null)
                 {
-                    var existing = found.Find(d => d.DeviceNumber == hw.m_bDeviceNr);
                     if (isUsed)
                         existing.InUse = true;
+                    if (existing.ProductCode == 0)
+                        existing.ProductCode = hw.m_dwProductCode;
                     return;
                 }
 
@@ -198,8 +254,9 @@ namespace CanTraceConverter.Services
                     (int index, bool isUsed, tUcanHardwareInfoEx hw, ref bool doInit, ref bool tryNext) =>
                     {
                         AddDevice(hw, isUsed);
-                        // Initialize unused devices so cold-plug scans return full hardware info.
-                        doInit = !isUsed;
+                        // Initialize unused devices so cold-plug scans return full hardware
+                        // info — but never while a monitor session holds a module.
+                        doInit = !isUsed && !sessionsOpen;
                         tryNext = true;
                     },
                     true);
@@ -225,8 +282,7 @@ namespace CanTraceConverter.Services
                         }
                         finally
                         {
-                            try { s.Shutdown((byte)eUcanChannel.USBCAN_CHANNEL_ANY, true); }
-                            catch { /* ignore */ }
+                            UsbCanHardwareManager.SafeReleaseServer(s);
                         }
                     }
                 }
@@ -239,7 +295,7 @@ namespace CanTraceConverter.Services
             // Reliable fallback: EnumerateHardware often fails to report a connected
             // module until InitHardware has succeeded once. Probe the first available
             // device directly so idle hardware is detected on the first scan.
-            if (found.Count == 0)
+            if (found.Count == 0 && !sessionsOpen)
                 ProbeFirstAvailableDevice(AddDevice);
 
             if (found.Count == 0)
@@ -261,7 +317,6 @@ namespace CanTraceConverter.Services
         private static void ProbeFirstAvailableDevice(Action<tUcanHardwareInfoEx, bool> addDevice)
         {
             USBcanServer probe = null;
-            bool initialized = false;
             try
             {
                 probe = new USBcanServer();
@@ -269,7 +324,6 @@ namespace CanTraceConverter.Services
                 if (result != (int)eUcanReturn.USBCAN_SUCCESSFUL)
                     return;
 
-                initialized = true;
                 var hw = new tUcanHardwareInfoEx();
                 var ch0 = new tUcanChannelInfo();
                 var ch1 = new tUcanChannelInfo();
@@ -282,11 +336,7 @@ namespace CanTraceConverter.Services
             }
             finally
             {
-                if (probe != null && initialized)
-                {
-                    try { probe.Shutdown((byte)eUcanChannel.USBCAN_CHANNEL_ANY, true); }
-                    catch { /* ignore */ }
-                }
+                UsbCanHardwareManager.SafeReleaseServer(probe);
             }
         }
 

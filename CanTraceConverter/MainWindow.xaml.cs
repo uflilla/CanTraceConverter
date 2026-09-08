@@ -61,7 +61,7 @@ namespace CanTraceConverter
                 var inputPath = txtInputFile.Text;
                 var outputPath = txtOutputFile.Text;
 
-                // Run conversion in background
+                // Runs on a background thread; the await resumes back on the UI thread.
                 var (result, messageCount, errorCode, header) = await _converter.ConvertAsync(
                     inputPath,
                     diff

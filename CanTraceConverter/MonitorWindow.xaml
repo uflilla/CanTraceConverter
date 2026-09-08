@@ -280,12 +280,15 @@
         <StackPanel Orientation="Horizontal">
           <Button MinWidth="150" Margin="0,0,12,0" Click="BtnAnalyze_Click"
                   Content="Analyze Session" Style="{StaticResource ModernButton}" />
-          <Button MinWidth="150" Margin="0,0,12,0" Click="BtnExport_Click"
+          <Button x:Name="btnExport" MinWidth="150" Margin="0,0,12,0" Click="BtnExport_Click"
                   Content="Export to Text..." Style="{StaticResource SecondaryButton}" />
           <Button MinWidth="150" Margin="0,0,12,0" Click="BtnOpenLogDir_Click"
                   Content="Open Log Folder" Style="{StaticResource SecondaryButton}" />
-          <Button x:Name="btnReconnect" MinWidth="130" Click="BtnReconnect_Click"
+          <Button x:Name="btnReconnect" MinWidth="130" Margin="0,0,12,0" Click="BtnReconnect_Click"
                   Content="Reconnect" Style="{StaticResource SecondaryButton}" Visibility="Collapsed" />
+          <Button x:Name="btnResetController" MinWidth="170" Click="BtnResetController_Click"
+                  Content="Reset CAN Controller" Style="{StaticResource SecondaryButton}" Visibility="Collapsed"
+                  ToolTip="Clears a bus-off condition and restarts the CAN controller." />
         </StackPanel>
 
         <Border Margin="0,14,0,0" Padding="12,10"
