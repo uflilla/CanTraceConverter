@@ -45,6 +45,9 @@
                   BorderThickness="1" CornerRadius="12">
             <TextBlock x:Name="txtSourceBadge" FontSize="12" FontWeight="SemiBold" Text="Source" />
           </Border>
+          <Button MinWidth="120" Margin="0,0,8,0" Click="btnSdoPackets_Click"
+                  Content="SDO Packets" Style="{StaticResource SecondaryButton}"
+                  ToolTip="Open the reassembled SDO packets of this trace in their own window" />
           <Button x:Name="btnReload" MinWidth="90" Click="btnReload_Click"
                   Content="Reload" Style="{StaticResource SecondaryButton}"
                   ToolTip="Reload data from database file" Visibility="Collapsed" />
@@ -295,10 +298,12 @@
                   BorderThickness="0,1,0,0" Visibility="Collapsed">
             <StackPanel>
               <TextBlock FontWeight="SemiBold" Text="Selected Message" />
-              <TextBlock x:Name="txtMessageDetail" Margin="0,4,0,0"
-                         FontFamily="Consolas" FontSize="12"
-                         Foreground="{DynamicResource ThemeTextSecondaryBrush}"
-                         TextWrapping="Wrap" />
+              <!-- Read-only TextBox so a reassembled SDO payload can be selected and copied. -->
+              <TextBox x:Name="txtMessageDetail" Margin="0,4,0,0" MaxHeight="260"
+                       FontFamily="Consolas" FontSize="12" IsReadOnly="True"
+                       BorderThickness="0" Background="Transparent" Padding="0"
+                       Foreground="{DynamicResource ThemeTextSecondaryBrush}"
+                       TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" />
             </StackPanel>
           </Border>
 

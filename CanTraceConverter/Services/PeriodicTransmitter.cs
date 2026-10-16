@@ -1,11 +1,13 @@
 using System;
+using System.Diagnostics;
 using System.Threading;
 using CanTraceConverter.Models;
 
 namespace CanTraceConverter.Services
 {
     /// <summary>
-    /// Software periodic transmitter using high-resolution timing (~1 ms accuracy).
+    /// Software periodic transmitter. The schedule itself is sub-millisecond; what reaches
+    /// the wire still carries USB transfer jitter (full-speed USB frames are 1 ms).
     /// </summary>
     public sealed class PeriodicTransmitter : IDisposable
     {
@@ -42,7 +44,8 @@ namespace CanTraceConverter.Services
             _thread = new Thread(TransmitLoop)
             {
                 IsBackground = true,
-                Name = "PeriodicCanTx"
+                Name = "PeriodicCanTx",
+                Priority = ThreadPriority.Highest
             };
             _thread.Start();
         }
@@ -52,10 +55,17 @@ namespace CanTraceConverter.Services
             // Request 1 ms timer resolution from Windows multimedia timer API.
             NativeMethods.timeBeginPeriod(1);
             string fault = null;
+            var timer = HighResolutionWait.TryCreate();
             try
             {
-                var sw = System.Diagnostics.Stopwatch.StartNew();
-                long nextTick = 0;
+                // Scheduled in Stopwatch ticks, not whole milliseconds: the old integer-ms
+                // clock plus Sleep(1) granularity put up to ~2 ms of jitter on every frame.
+                long frequency = Stopwatch.Frequency;
+                long intervalTicks = Math.Max(1, (long)Math.Round(_intervalMs * frequency / 1000.0));
+                long spinWindow = frequency / 2000; // final 0.5 ms is spun for accuracy
+                long maxWaitTicks = frequency / 20;
+                var sw = Stopwatch.StartNew();
+                long nextDue = 0;
 
                 while (_running)
                 {
@@ -67,22 +77,32 @@ namespace CanTraceConverter.Services
                         break;
                     }
 
-                    long elapsed = sw.ElapsedMilliseconds;
-                    if (elapsed >= nextTick)
+                    long now = sw.ElapsedTicks;
+                    long remaining = nextDue - now;
+                    if (remaining <= 0)
                     {
                         bus.SendOnce(_canId, _dlc, _data, _extended, false);
-                        nextTick += _intervalMs;
+                        nextDue += intervalTicks;
 
                         // If a slow USB write (or a scheduling stall) pushed us past a whole
                         // interval, resynchronise instead of firing a catch-up burst onto
                         // the bus.
-                        if (nextTick <= elapsed)
-                            nextTick = elapsed + _intervalMs;
+                        now = sw.ElapsedTicks;
+                        if (nextDue <= now)
+                            nextDue = now + intervalTicks;
+                    }
+                    else if (remaining > spinWindow)
+                    {
+                        // Capped so a stop request on a long interval is still seen promptly.
+                        long sleepTicks = Math.Min(remaining - spinWindow, maxWaitTicks);
+                        if (timer != null)
+                            timer.Wait(sleepTicks * TimeSpan.TicksPerSecond / frequency);
+                        else
+                            Thread.Sleep(1);
                     }
                     else
                     {
-                        long remaining = nextTick - elapsed;
-                        Thread.Sleep(remaining > 1 ? 1 : (int)remaining);
+                        Thread.SpinWait(20);
                     }
                 }
             }
@@ -95,6 +115,7 @@ namespace CanTraceConverter.Services
             finally
             {
                 _running = false;
+                timer?.Dispose();
                 NativeMethods.timeEndPeriod(1);
 
                 if (fault != null)
@@ -139,12 +160,78 @@ namespace CanTraceConverter.Services
         }
     }
 
+    /// <summary>
+    /// Waitable timer created with CREATE_WAITABLE_TIMER_HIGH_RESOLUTION (Windows 10 1803+),
+    /// which wakes within a fraction of a millisecond instead of on the next scheduler tick.
+    /// </summary>
+    internal sealed class HighResolutionWait : IDisposable
+    {
+        private IntPtr _handle;
+
+        private HighResolutionWait(IntPtr handle) => _handle = handle;
+
+        public static HighResolutionWait TryCreate()
+        {
+            try
+            {
+                IntPtr handle = NativeMethods.CreateWaitableTimerExW(
+                    IntPtr.Zero, null, NativeMethods.CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, NativeMethods.TIMER_ALL_ACCESS);
+                return handle == IntPtr.Zero ? null : new HighResolutionWait(handle);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        /// <summary>Blocks for the given number of 100 ns units.</summary>
+        public void Wait(long duration100ns)
+        {
+            if (duration100ns <= 0 || _handle == IntPtr.Zero)
+                return;
+
+            long due = -duration100ns; // negative = relative
+            if (NativeMethods.SetWaitableTimer(_handle, ref due, 0, IntPtr.Zero, IntPtr.Zero, false))
+                NativeMethods.WaitForSingleObject(_handle, NativeMethods.INFINITE);
+            else
+                Thread.Sleep(1);
+        }
+
+        public void Dispose()
+        {
+            var handle = _handle;
+            _handle = IntPtr.Zero;
+            if (handle != IntPtr.Zero)
+                NativeMethods.CloseHandle(handle);
+        }
+    }
+
     internal static class NativeMethods
     {
+        internal const uint CREATE_WAITABLE_TIMER_HIGH_RESOLUTION = 0x00000002;
+        internal const uint TIMER_ALL_ACCESS = 0x001F0003;
+        internal const uint INFINITE = 0xFFFFFFFF;
+
         [System.Runtime.InteropServices.DllImport("winmm.dll")]
         internal static extern uint timeBeginPeriod(uint uPeriod);
 
         [System.Runtime.InteropServices.DllImport("winmm.dll")]
         internal static extern uint timeEndPeriod(uint uPeriod);
+
+        [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true, CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+        internal static extern IntPtr CreateWaitableTimerExW(IntPtr lpTimerAttributes, string lpTimerName, uint dwFlags, uint dwDesiredAccess);
+
+        [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
+        [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+        internal static extern bool SetWaitableTimer(IntPtr hTimer, ref long pDueTime, int lPeriod,
+            IntPtr pfnCompletionRoutine, IntPtr lpArgToCompletionRoutine,
+            [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)] bool fResume);
+
+        [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
+        internal static extern uint WaitForSingleObject(IntPtr hHandle, uint dwMilliseconds);
+
+        [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
+        [return: System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.Bool)]
+        internal static extern bool CloseHandle(IntPtr hObject);
     }
 }

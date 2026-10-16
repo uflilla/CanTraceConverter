@@ -79,5 +79,19 @@ namespace CanTraceConverter
             AppLog.Info("Opening analysis for '{0}' ({1}).", dlg.FileName, kind);
             AnalysisWindow.Open(this, dlg.FileName, kind);
         }
+
+        private void BtnSdoPackets_Click(object sender, RoutedEventArgs e)
+        {
+            var dlg = new OpenFileDialog
+            {
+                Filter = "Session database or CAN trace|*.db;*.txt;*.ucantrc|Session database|*.db|Converted trace text|*.txt|Binary trace|*.ucantrc|All files|*.*",
+                Title = "Open trace for SDO packet tracing"
+            };
+            if (dlg.ShowDialog() != true)
+                return;
+
+            AppLog.Info("Opening SDO packet trace for '{0}'.", dlg.FileName);
+            SdoPacketWindow.OpenFile(null, dlg.FileName);
+        }
     }
 }

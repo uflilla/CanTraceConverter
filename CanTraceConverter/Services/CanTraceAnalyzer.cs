@@ -255,21 +255,40 @@ namespace CanTraceConverter.Services
         public static List<GapAnalysisRow> BuildGapAnalysis(IEnumerable<CanMessage> messages)
         {
             var rows = new List<GapAnalysisRow>();
-            foreach (var group in messages.GroupBy(m => m.CanId).Where(g => g.Count() > 1))
+
+            // A TX echo and a received frame with the same identifier are separate streams;
+            // interleaving them halved the measured period.
+            foreach (var group in messages.GroupBy(m => new { m.CanId, m.Direction }))
             {
+                // Stable sort: equal timestamps keep their capture order.
                 var ordered = group.OrderBy(m => m.TimeValue).ToList();
-                var gaps = new List<double>();
+                if (ordered.Count < 2)
+                    continue;
+
+                double min = double.MaxValue, max = double.MinValue, sum = 0, sumSq = 0;
+                int n = ordered.Count - 1;
                 for (int i = 1; i < ordered.Count; i++)
-                    gaps.Add(ordered[i].TimeValue - ordered[i - 1].TimeValue);
+                {
+                    double gap = ordered[i].TimeValue - ordered[i - 1].TimeValue;
+                    if (gap < min) min = gap;
+                    if (gap > max) max = gap;
+                    sum += gap;
+                    sumSq += gap * gap;
+                }
+
+                double avg = sum / n;
+                double variance = Math.Max(0, sumSq / n - avg * avg);
 
                 rows.Add(new GapAnalysisRow
                 {
-                    CanId = group.Key,
+                    CanId = group.Key.CanId,
+                    Direction = group.Key.Direction,
                     MessageCount = ordered.Count,
-                    MinGapMs = gaps.Min(),
-                    MaxGapMs = gaps.Max(),
-                    AvgGapMs = gaps.Average(),
-                    EstimatedHz = gaps.Average() > 0 ? 1000.0 / gaps.Average() : 0
+                    MinGapMs = min,
+                    MaxGapMs = max,
+                    AvgGapMs = avg,
+                    JitterMs = Math.Sqrt(variance),
+                    EstimatedHz = avg > 0 ? 1000.0 / avg : 0
                 });
             }
             return rows.OrderByDescending(r => r.MessageCount).ToList();
@@ -283,17 +302,28 @@ namespace CanTraceConverter.Services
                 return timeline;
 
             double minTime = list.Min(m => m.TimeValue);
-            double maxTime = list.Max(m => m.TimeValue);
 
-            for (double time = minTime; time <= maxTime; time += intervalMs)
+            // One pass, bucket = floor((t - min) / interval). The old loop rescanned every
+            // message for every bucket and accumulated floating-point error in the bounds.
+            var buckets = new SortedDictionary<long, List<CanMessage>>();
+            foreach (var message in list)
             {
-                var bucket = list.Where(m => m.TimeValue >= time && m.TimeValue < time + intervalMs).ToList();
-                if (bucket.Count == 0)
-                    continue;
+                long index = (long)Math.Floor((message.TimeValue - minTime) / intervalMs);
+                if (!buckets.TryGetValue(index, out var bucket))
+                {
+                    bucket = new List<CanMessage>();
+                    buckets[index] = bucket;
+                }
+                bucket.Add(message);
+            }
 
+            foreach (var pair in buckets)
+            {
+                double start = minTime + pair.Key * intervalMs;
+                var bucket = pair.Value;
                 timeline.Add(new TimelineSummary
                 {
-                    TimeRange = $"{CanMessageHelper.FormatTime(time)} – {CanMessageHelper.FormatTime(time + intervalMs)}",
+                    TimeRange = $"{CanMessageHelper.FormatTime(start)} – {CanMessageHelper.FormatTime(start + intervalMs)}",
                     MessageCount = bucket.Count,
                     UniqueIds = bucket.Select(m => m.CanId).Distinct().Count(),
                     RxCount = bucket.Count(m => m.Direction == "RX"),

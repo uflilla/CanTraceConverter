@@ -14,6 +14,12 @@ namespace CanTraceConverter.Models
         public bool ListenOnly { get; set; }
         public string LogDirectory { get; set; }
 
+        /// <summary>
+        /// CANopen node ID of the SDO client (usually the master). An SDO COB-ID only names the
+        /// server node, so this is recorded as the sender of requests and receiver of responses.
+        /// </summary>
+        public byte SdoClientNodeId { get; set; }
+
         public string BuildDatabasePath()
         {
             string safeTitle = Regex.Replace(Title ?? "Session", @"[^\w\-]", "_");

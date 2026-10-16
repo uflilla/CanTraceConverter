@@ -87,14 +87,18 @@ namespace CanTraceConverter.Helpers
                         CanMsg = (UcanDotNET.USBcanServer.tCanMsgStruct)argToBeFormatted;
 
                         str  = ((CanMsg.m_bFF & (byte)UcanDotNET.USBcanServer.eUcanMsgFrameFormat.USBCAN_MSG_FF_ECHO) != 0) ? "TX: " : "RX: ";
+
+                        // The device counter is an unsigned 32-bit value that the wrapper types
+                        // as int; formatted signed it printed negative times past 2^31 ticks.
+                        uint time = unchecked((uint)CanMsg.m_dwTime);
                         if (UcanDotNET.USBcanServer.CheckIs_G4(this.m_UcanHwInfo) &&
                             ((this.m_CanChannelInfo.m_bMode & (byte)UcanDotNET.USBcanServer.tUcanMode.kUcanModeHighResTimer) != 0))
                         {
-                            str += string.Format("{0:D8}.{1:D1} ", CanMsg.m_dwTime / 10, CanMsg.m_dwTime % 10);
+                            str += string.Format("{0:D8}.{1:D1} ", time / 10, time % 10);
                         }
                         else
                         {
-                            str += string.Format("{0:D9}  ", CanMsg.m_dwTime);
+                            str += string.Format("{0:D9}  ", time);
                         }
                         str += ((CanMsg.m_bFF & (byte)UcanDotNET.USBcanServer.eUcanMsgFrameFormat.USBCAN_MSG_FF_EXT) != 0) ?
                             string.Format ("{0:X8}h ", CanMsg.m_dwID) : string.Format ("     {0:X3}h ", CanMsg.m_dwID);

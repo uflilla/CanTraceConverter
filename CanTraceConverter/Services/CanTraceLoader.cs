@@ -78,6 +78,7 @@ namespace CanTraceConverter.Services
                 result.SessionInfo["baudrate_kbps"] = repo.GetSessionInfoValue("baudrate_kbps");
                 result.SessionInfo["listen_only"] = repo.GetSessionInfoValue("listen_only");
                 result.SessionInfo["started_at"] = repo.GetSessionInfoValue("started_at");
+                result.SessionInfo["sdo_client_node_id"] = repo.GetSessionInfoValue("sdo_client_node_id");
 
                 if (string.IsNullOrWhiteSpace(result.HeaderText))
                     result.HeaderText = BuildDatabaseHeader(result);

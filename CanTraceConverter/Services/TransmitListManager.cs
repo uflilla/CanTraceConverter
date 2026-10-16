@@ -149,23 +149,45 @@ namespace CanTraceConverter.Services
             if (!TryParse(row, out uint id, out byte dlc, out byte[] data, out bool ext, out error))
                 return false;
 
+            PeriodicTransmitter stale = null;
             lock (_cyclics)
             {
-                if (_cyclics.ContainsKey(row.Id))
+                if (_cyclics.TryGetValue(row.Id, out var existing))
                 {
-                    row.IsCyclicRunning = true;
-                    return true;
+                    if (existing.IsRunning)
+                    {
+                        row.IsCyclicRunning = true;
+                        return true;
+                    }
+
+                    // A transmitter that stopped on its own (bus-off, disconnect) used to stay
+                    // registered, so Send reported "running" while nothing was transmitted.
+                    _cyclics.Remove(row.Id);
+                    stale = existing;
                 }
 
                 var rowId = row.Id;
                 var transmitter = new PeriodicTransmitter();
-                transmitter.Faulted += reason => CyclicFaulted?.Invoke(rowId, reason);
+                transmitter.Faulted += reason => OnTransmitterFaulted(rowId, transmitter, reason);
                 transmitter.Start(bus, row.IntervalMs, id, dlc, data, ext);
                 _cyclics[rowId] = transmitter;
             }
 
+            StopSafely(stale);
             row.IsCyclicRunning = true;
             return true;
+        }
+
+        /// <summary>Runs on the transmit thread as it exits.</summary>
+        private void OnTransmitterFaulted(Guid rowId, PeriodicTransmitter transmitter, string reason)
+        {
+            lock (_cyclics)
+            {
+                if (_cyclics.TryGetValue(rowId, out var current) && ReferenceEquals(current, transmitter))
+                    _cyclics.Remove(rowId);
+            }
+
+            CyclicFaulted?.Invoke(rowId, reason);
         }
 
         public void StopCyclic(CanTransmitRow row)

@@ -33,6 +33,7 @@ namespace CanTraceConverter
         private volatile bool _loggingEnabled;
         private bool _teardownComplete;
         private CanBusStatus _busStatus = CanBusStatus.Ok;
+        private SdoPacketWindow _sdoPacketWindow;
 
         public MonitorWindow(SessionConfig config)
         {
@@ -164,6 +165,9 @@ namespace CanTraceConverter
                     return;
                 }
 
+                // The channel was (re)opened, so its timestamp base restarted.
+                ResetLivePeriodStatistics(resetCounts: false);
+
                 var header = CanMessageHelper.BuildSessionHeader(
                     _config, _bus.HardwareInfo, _bus.ChannelInfo);
                 _repository.Open(_config, header);
@@ -217,7 +221,8 @@ namespace CanTraceConverter
 
             // TX echoes and received frames with the same identifier are different traffic:
             // sharing a row made DIR flicker and mixed two unrelated cadences into PERIOD.
-            var key = new LiveRowKey(record.CanId, record.Direction == "TX");
+            // Standard 123h and extended 00000123h are different identifiers too.
+            var key = new LiveRowKey(record.CanId, record.IsExtended, record.Direction == "TX");
 
             lock (_liveRows)
             {
@@ -238,25 +243,77 @@ namespace CanTraceConverter
                 }
 
                 row.Direction = record.Direction;
-                if (row.MessageCount > 0)
-                {
-                    double periodMs = record.TimestampMs - row.TimestampMs;
-                    if (periodMs < 0)
-                        periodMs = 0;
-                    row.PeriodDisplay = CanMessageHelper.FormatTime(periodMs);
-                }
-                else
-                {
-                    row.PeriodDisplay = "-";
-                }
-
-                row.TimestampMs = record.TimestampMs;
-                row.TimeDisplay = CanMessageHelper.FormatTime(record.TimestampMs);
+                UpdatePeriodStatistics(row, record.TimestampMs);
+                row.TimeDisplay = CanMessageHelper.FormatTime(row.TimestampMs);
                 row.Dlc = record.Dlc;
                 row.Data = record.DataDisplay;
                 row.MessageCount++;
             }
             _dirty = true;
+        }
+
+        /// <summary>
+        /// Cycle time from consecutive hardware timestamps of the same identifier and
+        /// direction. Receive thread, under the <see cref="_liveRows"/> lock.
+        /// </summary>
+        private static void UpdatePeriodStatistics(LiveCanRow row, double timestampMs)
+        {
+            if (!row.HasPeriodBaseline)
+            {
+                row.HasPeriodBaseline = true;
+                row.PeriodStartMs = timestampMs;
+                row.TimestampMs = timestampMs;
+                return;
+            }
+
+            double periodMs = timestampMs - row.TimestampMs;
+            if (periodMs < 0)
+            {
+                // A frame stamped before its predecessor (echo ordering): it says nothing
+                // about this identifier's cadence, and must not reset the baseline.
+                return;
+            }
+
+            row.PeriodSamples++;
+            if (row.PeriodSamples == 1 || periodMs < row.MinPeriodMs)
+                row.MinPeriodMs = periodMs;
+            if (row.PeriodSamples == 1 || periodMs > row.MaxPeriodMs)
+                row.MaxPeriodMs = periodMs;
+
+            row.TimestampMs = timestampMs;
+
+            // Mean over the whole run, (last - first) / intervals: exact, and immune to the
+            // rounding a running sum of deltas would accumulate.
+            double avgMs = (timestampMs - row.PeriodStartMs) / row.PeriodSamples;
+
+            row.PeriodDisplay = CanMessageHelper.FormatTime(periodMs);
+            row.AvgPeriodDisplay = avgMs.ToString("F2");
+            row.MinPeriodDisplay = CanMessageHelper.FormatTime(row.MinPeriodMs);
+            row.MaxPeriodDisplay = CanMessageHelper.FormatTime(row.MaxPeriodMs);
+        }
+
+        /// <summary>
+        /// Starts period measurement afresh. Needed whenever the hardware timestamp base may
+        /// have changed (reconnect, controller reset), otherwise the first period spans the gap.
+        /// </summary>
+        private void ResetLivePeriodStatistics(bool resetCounts)
+        {
+            lock (_liveRows)
+            {
+                foreach (var row in _liveRows.Values)
+                {
+                    row.ResetPeriodStatistics();
+                    if (resetCounts)
+                        row.MessageCount = 0;
+                }
+            }
+            _dirty = true;
+        }
+
+        private void BtnResetLiveStats_Click(object sender, RoutedEventArgs e)
+        {
+            ResetLivePeriodStatistics(resetCounts: true);
+            txtStatus.Text = "Live period statistics and counters reset.";
         }
 
         private void OnBusStatusText(string status)
@@ -339,6 +396,7 @@ namespace CanTraceConverter
             _busStatus = CanBusStatus.Ok;
             txtBusError.Text = string.Empty;
             txtBusError.Visibility = Visibility.Collapsed;
+            ResetLivePeriodStatistics(resetCounts: false);
             UpdateSendPanelState();
         }
 
@@ -353,11 +411,19 @@ namespace CanTraceConverter
                 try { dgLive.Items.Refresh(); } catch { /* ignore during shutdown */ }
             }
 
+            // A 64-bit read is not atomic in this 32-bit process.
+            long total = System.Threading.Interlocked.Read(ref _totalMessages);
             long saved = _repository.IsOpen ? _repository.TotalWritten : 0;
+            long transfers = _repository.IsOpen ? _repository.TotalTransfersWritten : 0;
             long dropped = _repository.TotalDropped;
             txtLiveStats.Text = dropped > 0
-                ? $"{_liveCollection.Count} rows · {_totalMessages:N0} total · {saved:N0} saved · {dropped:N0} DROPPED"
-                : $"{_liveCollection.Count} rows · {_totalMessages:N0} total · {saved:N0} saved";
+                ? $"{_liveCollection.Count} rows · {total:N0} total · {saved:N0} saved · {transfers:N0} SDO packets · {dropped:N0} DROPPED"
+                : $"{_liveCollection.Count} rows · {total:N0} total · {saved:N0} saved · {transfers:N0} SDO packets";
+
+            string lastTransfer = _repository.LastTransferSummary;
+            txtLiveStats.ToolTip = lastTransfer == null
+                ? $"{_repository.TotalSdoWritten:N0} SDO frames saved; no complete SDO packet yet."
+                : $"{_repository.TotalSdoWritten:N0} SDO frames saved.\nLast SDO packet: {lastTransfer}";
         }
 
         private void OnDisconnected()
@@ -560,6 +626,27 @@ namespace CanTraceConverter
             AnalysisWindow.Open(this, _repository.DatabasePath, AnalysisSource.Database);
         }
 
+        private void BtnSdoPackets_Click(object sender, RoutedEventArgs e)
+        {
+            if (!_repository.IsOpen)
+            {
+                MessageBox.Show("No session data is available yet. Connect to the CAN bus first.",
+                    "No Data", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            // One live packet view per session; it closes with this window.
+            if (_sdoPacketWindow != null && _sdoPacketWindow.IsLoaded)
+            {
+                if (_sdoPacketWindow.WindowState == WindowState.Minimized)
+                    _sdoPacketWindow.WindowState = WindowState.Normal;
+                _sdoPacketWindow.Activate();
+                return;
+            }
+
+            _sdoPacketWindow = SdoPacketWindow.ShowLive(this, _repository.DatabasePath, _config.Title);
+        }
+
         private async void BtnExport_Click(object sender, RoutedEventArgs e)
         {
             if (!_repository.IsOpen)
@@ -737,17 +824,21 @@ namespace CanTraceConverter
         private readonly struct LiveRowKey : IEquatable<LiveRowKey>
         {
             private readonly uint _canId;
+            private readonly bool _isExtended;
             private readonly bool _isTx;
 
-            public LiveRowKey(uint canId, bool isTx)
+            public LiveRowKey(uint canId, bool isExtended, bool isTx)
             {
                 _canId = canId;
+                _isExtended = isExtended;
                 _isTx = isTx;
             }
 
-            public bool Equals(LiveRowKey other) => _canId == other._canId && _isTx == other._isTx;
+            public bool Equals(LiveRowKey other) =>
+                _canId == other._canId && _isExtended == other._isExtended && _isTx == other._isTx;
             public override bool Equals(object obj) => obj is LiveRowKey other && Equals(other);
-            public override int GetHashCode() => unchecked((int)_canId * 2 + (_isTx ? 1 : 0));
+            public override int GetHashCode() =>
+                unchecked((int)_canId * 4 + (_isExtended ? 2 : 0) + (_isTx ? 1 : 0));
         }
     }
 }

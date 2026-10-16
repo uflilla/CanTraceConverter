@@ -142,6 +142,7 @@ namespace CanTraceConverter.Services
             sb.AppendLine($"Device:    {config.DeviceNumber}  Channel: {config.Channel}");
             sb.AppendLine($"Baudrate:  {config.BaudRateKbps} kBit/s");
             sb.AppendLine($"Mode:      {(config.ListenOnly ? "Listen-only" : "Normal")}");
+            sb.AppendLine($"SDO client node ID: {config.SdoClientNodeId}");
             sb.AppendLine($"Hardware:  {string.Format(new Helpers.UcanHwInfoFormatProvider(), "{0}", hw)}");
             sb.AppendLine($"Channel:   {string.Format(new Helpers.UcanChannelInfoFormatProvider(), "{0}", ch)}");
             sb.AppendLine($"Started:   {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
@@ -163,6 +164,12 @@ namespace CanTraceConverter.Services
         public bool IsRtr { get; set; }
         public byte Dlc { get; set; }
         public byte[] Data { get; set; } = new byte[8];
+
+        /// <summary>Decoded once by the session writer, so a retried batch keeps it.</summary>
+        internal SdoFrame Sdo { get; set; }
+
+        /// <summary>SDO transfers this frame finished; written right after it.</summary>
+        internal SdoTransfer[] CompletedTransfers { get; set; }
 
         public string CanIdDisplay =>
             IsExtended ? $"{CanId:X8}h" : $"{CanId,3:X3}h".Trim();

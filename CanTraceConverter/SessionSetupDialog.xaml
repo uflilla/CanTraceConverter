@@ -72,6 +72,11 @@
         <TextBlock Margin="0,0,0,12" FontSize="12" Foreground="{DynamicResource ThemeTextSecondaryBrush}" TextWrapping="Wrap"
                    Text="Uncheck to enable Send CAN Packet in the monitor window." />
 
+        <TextBlock Margin="0,0,0,4" FontWeight="Medium" Text="Standard (11-bit) SDO Client Node ID (0–127)" />
+        <TextBox x:Name="txtSdoClientNode" Margin="0,0,0,4" Style="{StaticResource ModernTextBox}" Text="0" />
+        <TextBlock Margin="0,0,0,12" FontSize="12" Foreground="{DynamicResource ThemeTextSecondaryBrush}" TextWrapping="Wrap"
+                   Text="SDO transfers are reassembled into full packets and saved with sender and receiver. 29-bit SDO IDs (function code 0Bh/0Ch | sender | SDO no. | destination) carry both nodes. Standard 600h/580h IDs only name the server, so this ID is recorded as their client. Decimal, or hex as 0x7F / 7Fh." />
+
         <TextBlock Margin="0,0,0,4" FontWeight="Medium" Text="Log Directory" />
         <Grid Margin="0,0,0,8">
           <Grid.ColumnDefinitions>

@@ -4,9 +4,9 @@
         xmlns:controls="clr-namespace:CanTraceConverter.Controls"
         Title="USB-CAN Studio"
         Width="560"
-        Height="420"
+        Height="480"
         MinWidth="480"
-        MinHeight="380"
+        MinHeight="440"
         WindowStartupLocation="CenterScreen"
         Background="{DynamicResource ThemeBackgroundBrush}"
         FontFamily="Segoe UI"
@@ -32,6 +32,8 @@
               Content="Trace Converter (.ucantrc)" Style="{StaticResource SecondaryButton}" />
       <Button Margin="0,0,0,12" MinWidth="320" Click="BtnAnalyzeDb_Click"
               Content="Analyze Trace (Database or Text)" Style="{StaticResource SecondaryButton}" />
+      <Button Margin="0,0,0,12" MinWidth="320" Click="BtnSdoPackets_Click"
+              Content="SDO Packet Trace (Database or Trace)" Style="{StaticResource SecondaryButton}" />
       <Button x:Name="btnTheme" Margin="0,0,0,12" MinWidth="320" Click="BtnTheme_Click"
               Content="Switch to Light Theme" Style="{StaticResource SecondaryButton}" />
     </StackPanel>

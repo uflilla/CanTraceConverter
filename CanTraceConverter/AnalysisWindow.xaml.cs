@@ -401,15 +401,17 @@ namespace CanTraceConverter
         {
             dgMessages.Columns.Clear();
             dgMessages.Columns.Add(Col("CAN ID", "CanId", 110));
+            dgMessages.Columns.Add(Col("DIR", "Direction", 60));
             dgMessages.Columns.Add(Col("MSGS", "MessageCount", 70));
             dgMessages.Columns.Add(Col("MIN GAP", "MinGapDisplay", 100));
             dgMessages.Columns.Add(Col("AVG GAP", "AvgGapDisplay", 100));
             dgMessages.Columns.Add(Col("MAX GAP", "MaxGapDisplay", 100));
+            dgMessages.Columns.Add(Col("JITTER (σ)", "JitterDisplay", 100));
             dgMessages.Columns.Add(Col("EST. RATE", "EstHzDisplay", 100));
 
             var gaps = CanTraceAnalyzer.BuildGapAnalysis(_filteredMessages);
             dgMessages.ItemsSource = gaps;
-            txtMessageCount.Text = $"{gaps.Count:N0} CAN IDs with timing data";
+            txtMessageCount.Text = $"{gaps.Count:N0} CAN ID / direction streams with timing data";
         }
 
         private void ShowMessageTimeline()
@@ -439,6 +441,17 @@ namespace CanTraceConverter
             var frequency = CanTraceAnalyzer.BuildFrequencyAnalysis(_filteredMessages, _filteredMessages.Count);
             dgMessages.ItemsSource = frequency;
             txtMessageCount.Text = $"{frequency.Count:N0} CAN IDs analyzed";
+        }
+
+        private byte GetSdoClientNodeId()
+        {
+            if (_loadResult?.SessionInfo != null &&
+                _loadResult.SessionInfo.TryGetValue("sdo_client_node_id", out var text) &&
+                byte.TryParse(text, out byte node) && node <= 127)
+            {
+                return node;
+            }
+            return 0;
         }
 
         private double ParseTimelineInterval()
@@ -596,6 +609,21 @@ namespace CanTraceConverter
 
             LoadData(_loadResult.SourcePath, AnalysisSource.Database);
             txtStatus.Text = "Database reloaded";
+        }
+
+        /// <summary>
+        /// Packets are reassembled from the whole trace, not the filtered view: frame
+        /// filters would drop segments and make intact packets look incomplete.
+        /// </summary>
+        private void btnSdoPackets_Click(object sender, RoutedEventArgs e)
+        {
+            if (_loadResult == null)
+                return;
+
+            if (_loadResult.SourceKind == AnalysisSourceKind.Database && !string.IsNullOrWhiteSpace(_loadResult.SourcePath))
+                SdoPacketWindow.OpenFile(this, _loadResult.SourcePath);
+            else
+                SdoPacketWindow.OpenMessages(this, _allMessages, GetSdoClientNodeId(), BuildSourceDescription());
         }
 
         private void btnClose_Click(object sender, RoutedEventArgs e)

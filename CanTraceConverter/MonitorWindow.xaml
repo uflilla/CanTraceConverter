@@ -89,9 +89,18 @@
         <Border Padding="14,10" Background="{DynamicResource ThemeSurfaceAltBrush}"
                 BorderBrush="{DynamicResource ThemeBorderBrush}" BorderThickness="0,0,0,1">
           <Grid>
-            <TextBlock FontWeight="SemiBold" Text="Live CAN Values (latest per ID)" />
-            <TextBlock x:Name="txtLiveStats" HorizontalAlignment="Right"
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="Auto" />
+              <ColumnDefinition Width="*" />
+              <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <TextBlock FontWeight="SemiBold" VerticalAlignment="Center" Text="Live CAN Values (latest per ID)" />
+            <TextBlock x:Name="txtLiveStats" Grid.Column="1" Margin="12,0" HorizontalAlignment="Right"
+                       VerticalAlignment="Center"
                        Foreground="{DynamicResource ThemeTextSecondaryBrush}" />
+            <Button Grid.Column="2" MinWidth="90" Padding="10,2" Click="BtnResetLiveStats_Click"
+                    Content="Reset Stats" Style="{StaticResource SecondaryButton}"
+                    ToolTip="Restart period measurement and message counters for every identifier." />
           </Grid>
         </Border>
         <DataGrid x:Name="dgLive" Grid.Row="1" Style="{StaticResource ModernDataGrid}"
@@ -103,7 +112,10 @@
             <DataGridTextColumn Header="DLC" Binding="{Binding Dlc}" Width="45" />
             <DataGridTextColumn Header="DATA" Binding="{Binding Data}" Width="*" />
             <DataGridTextColumn Header="TIME (ms)" Binding="{Binding TimeDisplay}" Width="100" />
-            <DataGridTextColumn Header="PERIOD (ms)" Binding="{Binding PeriodDisplay}" Width="100" />
+            <DataGridTextColumn Header="PERIOD (ms)" Binding="{Binding PeriodDisplay}" Width="95" />
+            <DataGridTextColumn Header="AVG (ms)" Binding="{Binding AvgPeriodDisplay}" Width="85" />
+            <DataGridTextColumn Header="MIN (ms)" Binding="{Binding MinPeriodDisplay}" Width="80" />
+            <DataGridTextColumn Header="MAX (ms)" Binding="{Binding MaxPeriodDisplay}" Width="80" />
             <DataGridTextColumn Header="COUNT" Binding="{Binding MessageCount}" Width="70" />
           </DataGrid.Columns>
         </DataGrid>
@@ -280,6 +292,9 @@
         <StackPanel Orientation="Horizontal">
           <Button MinWidth="150" Margin="0,0,12,0" Click="BtnAnalyze_Click"
                   Content="Analyze Session" Style="{StaticResource ModernButton}" />
+          <Button MinWidth="130" Margin="0,0,12,0" Click="BtnSdoPackets_Click"
+                  Content="SDO Packets" Style="{StaticResource SecondaryButton}"
+                  ToolTip="Live view of reassembled SDO packets: who sent what to whom" />
           <Button x:Name="btnExport" MinWidth="150" Margin="0,0,12,0" Click="BtnExport_Click"
                   Content="Export to Text..." Style="{StaticResource SecondaryButton}" />
           <Button MinWidth="150" Margin="0,0,12,0" Click="BtnOpenLogDir_Click"

@@ -425,6 +425,9 @@ namespace CanTraceConverter.Services
             private int _disposed;
             private long _rxFaultCount;
 
+            /// <summary>Unwrapped tick counts for the batch being dispatched. RX thread only.</summary>
+            private long[] _ticksBuffer = new long[64];
+
             public byte DeviceNumber { get; }
             public tUcanHardwareInfoEx HardwareInfo { get; private set; }
             public bool HasOpenChannels => _channels.Any(c => c.Open);
@@ -782,7 +785,10 @@ namespace CanTraceConverter.Services
                 _rxThread = new Thread(RxLoop)
                 {
                     IsBackground = true,
-                    Name = $"CanRx-Dev{DeviceNumber}"
+                    Name = $"CanRx-Dev{DeviceNumber}",
+                    // Spends almost all its time blocked on the driver signal; when frames
+                    // arrive it must drain them before the device FIFO overruns.
+                    Priority = ThreadPriority.Highest
                 };
                 _rxThread.Start();
             }
@@ -840,6 +846,10 @@ namespace CanTraceConverter.Services
 
             private void DrainReceiveQueue(tCanMsgStruct[] buffer)
             {
+                if (_ticksBuffer.Length < buffer.Length)
+                    _ticksBuffer = new long[buffer.Length];
+                var ticksBuffer = _ticksBuffer;
+
                 for (byte channel = 0; channel < _channels.Length; channel++)
                 {
                     var slot = _channels[channel];
@@ -864,17 +874,34 @@ namespace CanTraceConverter.Services
                         if (result != (int)eUcanReturn.USBCAN_SUCCESSFUL || count <= 0)
                             break;
 
-                        var wallTime = DateTime.Now;
+                        if (ticksBuffer.Length < count)
+                            _ticksBuffer = ticksBuffer = new long[count];
+
+                        long readUtcTicks = PreciseClock.UtcNowTicks;
                         var handler = slot.OnMessage;
                         if (handler == null)
                             break; // Channel is closing — stop draining rather than spinning.
+
+                        // Wall time is derived from the hardware timestamp, not from when the
+                        // batch was read: every frame in a USB batch used to get the same wall
+                        // time. The newest frame bounds the clock offset best, so the whole
+                        // batch is unwrapped before any frame is mapped.
+                        long newestTicks = long.MinValue;
+                        for (int i = 0; i < count; i++)
+                        {
+                            ticksBuffer[i] = slot.UnwrapTime(buffer[i].m_dwTime, readUtcTicks);
+                            if (ticksBuffer[i] > newestTicks)
+                                newestTicks = ticksBuffer[i];
+                        }
+                        slot.ObserveWallClock(newestTicks, readUtcTicks);
 
                         for (int i = 0; i < count; i++)
                         {
                             try
                             {
+                                long ticks = ticksBuffer[i];
                                 var record = CanMessageHelper.FromHardwareMessage(
-                                    buffer[i], slot.TimestampScaleMs, slot.UnwrapTime(buffer[i].m_dwTime), wallTime);
+                                    buffer[i], slot.TimestampScaleMs, ticks, slot.ToWallTime(ticks));
                                 handler.Invoke(record);
                             }
                             catch (Exception ex)
@@ -1115,10 +1142,18 @@ namespace CanTraceConverter.Services
 
             private sealed class ChannelSlot
             {
+                /// <summary>Wall-clock offset may rise by this fraction of elapsed time, so a
+                /// device crystal running slower than the PC clock is still tracked (200 ppm).</summary>
+                private const long DriftAllowanceDivisor = 5000;
+
                 private volatile bool _open;
                 private uint _lastRawTime;
                 private bool _haveRawTime;
-                private long _timeBase;
+                private long _lastUnwrapped;
+                private long _lastReadUtcTicks;
+                private bool _haveWallOffset;
+                private long _wallOffsetUtcTicks;
+                private long _wallOffsetUpdatedAt;
 
                 /// <summary>Publishes the rest of the slot: written last on open, first on close.</summary>
                 public bool Open
@@ -1140,7 +1175,11 @@ namespace CanTraceConverter.Services
                 {
                     _haveRawTime = false;
                     _lastRawTime = 0;
-                    _timeBase = 0;
+                    _lastUnwrapped = 0;
+                    _lastReadUtcTicks = 0;
+                    _haveWallOffset = false;
+                    _wallOffsetUtcTicks = 0;
+                    _wallOffsetUpdatedAt = 0;
                 }
 
                 /// <summary>
@@ -1148,18 +1187,88 @@ namespace CanTraceConverter.Services
                 /// types it as a signed int, so it would otherwise go negative partway through
                 /// a long session and wrap entirely soon after. RX thread only.
                 /// </summary>
-                public long UnwrapTime(int rawSigned)
+                /// <remarks>
+                /// The step from the previous frame is taken modulo 2^32, so a genuine wrap is
+                /// just a small forward step. A frame that is slightly older than its
+                /// predecessor (TX echo ordering) keeps its own time and is not mistaken for a
+                /// wrap — that used to add 2^32 ticks (49.7 days) to every later timestamp.
+                /// A large backward step means the counter restarted (controller reset), and
+                /// time continues from the wall-clock gap so periods stay meaningful.
+                /// </remarks>
+                public long UnwrapTime(int rawSigned, long readUtcTicks)
                 {
                     uint raw = unchecked((uint)rawSigned);
 
-                    if (_haveRawTime && raw < _lastRawTime)
-                        _timeBase += 0x1_0000_0000L;
-                    else
+                    if (!_haveRawTime)
+                    {
                         _haveRawTime = true;
+                        _lastRawTime = raw;
+                        _lastUnwrapped = raw;
+                        _lastReadUtcTicks = readUtcTicks;
+                        return _lastUnwrapped;
+                    }
 
+                    uint forward = unchecked(raw - _lastRawTime);
+                    if (forward < 0x8000_0000u)
+                    {
+                        _lastUnwrapped += forward;
+                        _lastRawTime = raw;
+                        _lastReadUtcTicks = readUtcTicks;
+                        return _lastUnwrapped;
+                    }
+
+                    uint backward = unchecked(_lastRawTime - raw);
+                    if (backward <= MaxReorderTicks)
+                        return _lastUnwrapped - backward;
+
+                    double gapMs = Math.Max(0, readUtcTicks - _lastReadUtcTicks) / (double)TimeSpan.TicksPerMillisecond;
+                    _lastUnwrapped += (long)Math.Round(gapMs / TimestampScaleMs);
                     _lastRawTime = raw;
-                    return _timeBase + raw;
+                    _lastReadUtcTicks = readUtcTicks;
+                    AppLog.Warn("CAN hardware timestamp counter restarted; continuing from the wall-clock gap ({0:F1} ms).", gapMs);
+                    return _lastUnwrapped;
                 }
+
+                /// <summary>Backward steps up to one second are frame reordering, not a counter restart.</summary>
+                private uint MaxReorderTicks => (uint)Math.Round(1000.0 / TimestampScaleMs);
+
+                /// <summary>
+                /// Refines the hardware-to-PC clock offset from a batch read at
+                /// <paramref name="readUtcTicks"/>. Every frame is read some time after it was
+                /// stamped, so (read time − hardware time of the newest frame) is an upper
+                /// bound on the true offset; keeping the minimum converges on the batch with
+                /// the least USB latency. RX thread only.
+                /// </summary>
+                public void ObserveWallClock(long newestUnwrappedTicks, long readUtcTicks)
+                {
+                    long candidate = readUtcTicks - ToUtcTicks(newestUnwrappedTicks);
+
+                    if (!_haveWallOffset)
+                    {
+                        _haveWallOffset = true;
+                        _wallOffsetUtcTicks = candidate;
+                        _wallOffsetUpdatedAt = readUtcTicks;
+                    }
+                    else
+                    {
+                        long allowance = (readUtcTicks - _wallOffsetUpdatedAt) / DriftAllowanceDivisor;
+                        if (allowance > 0)
+                        {
+                            _wallOffsetUtcTicks += allowance;
+                            _wallOffsetUpdatedAt += allowance * DriftAllowanceDivisor;
+                        }
+
+                        if (candidate < _wallOffsetUtcTicks)
+                            _wallOffsetUtcTicks = candidate;
+                    }
+                }
+
+                /// <summary>Maps a hardware tick count onto the PC clock (local time). RX thread only.</summary>
+                public DateTime ToWallTime(long unwrappedTicks) =>
+                    new DateTime(_wallOffsetUtcTicks + ToUtcTicks(unwrappedTicks), DateTimeKind.Utc).ToLocalTime();
+
+                private long ToUtcTicks(long unwrappedTicks) =>
+                    (long)Math.Round(unwrappedTicks * TimestampScaleMs * TimeSpan.TicksPerMillisecond);
             }
         }
     }
