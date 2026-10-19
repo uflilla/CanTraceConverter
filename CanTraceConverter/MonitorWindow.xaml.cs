@@ -38,6 +38,10 @@ namespace CanTraceConverter
         private CanBusStatus _busStatus = CanBusStatus.Ok;
         private SdoPacketWindow _sdoPacketWindow;
 
+        /// <summary>Reconnect tries this often, waiting <see cref="ReconnectRetryDelayMs"/> between.</summary>
+        private const int ReconnectAttempts = 4;
+        private const int ReconnectRetryDelayMs = 1500;
+
         public MonitorWindow(SessionConfig config)
         {
             _config = config ?? throw new ArgumentNullException(nameof(config));
@@ -67,7 +71,7 @@ namespace CanTraceConverter
             _bus.Disconnected += OnBusDisconnected;
             _transmitManager.CyclicFaulted += OnCyclicFaulted;
 
-            Loaded += (_, __) => StartSession();
+            Loaded += async (_, __) => await StartSessionAsync(attempts: 1);
         }
 
         private void TransmitRows_CollectionChanged(object sender, NotifyCollectionChangedEventArgs e)
@@ -160,11 +164,32 @@ namespace CanTraceConverter
                 Dispatcher.BeginInvoke(action);
         }
 
-        private void StartSession()
+        /// <summary>
+        /// Opens the channel off the UI thread: initialising the hardware is USB I/O and
+        /// blocked the window while it ran.
+        /// </summary>
+        /// <param name="attempts">Tries before giving up. A module just plugged back in takes
+        /// Windows a few seconds to enumerate, and a Reconnect clicked meanwhile used to fail.</param>
+        private async Task StartSessionAsync(int attempts)
         {
             try
             {
-                if (!_bus.Connect(_config))
+                bool connected = false;
+                for (int attempt = 1; ; attempt++)
+                {
+                    connected = await Task.Run(() => _bus.Connect(_config));
+                    if (connected || _isClosing || attempt >= attempts)
+                        break;
+
+                    txtStatus.Text = $"Device not ready ({_bus.LastError}) — retrying ({attempt + 1} of {attempts})…";
+                    await Task.Delay(ReconnectRetryDelayMs);
+                }
+
+                // A window closed meanwhile releases the channel in its teardown.
+                if (_isClosing)
+                    return;
+
+                if (!connected)
                 {
                     ShowConnectionFailed(_bus.LastError ?? "Could not connect to USB-CAN device.");
                     return;
@@ -490,6 +515,7 @@ namespace CanTraceConverter
             AppLog.Warn("CAN monitor disconnected from hardware.");
             txtConnectionStatus.Text = "Disconnected";
             txtConnectionStatus.Foreground = System.Windows.Media.Brushes.OrangeRed;
+            txtStatus.Text = "USB device disconnected — plug it back in, then click Reconnect.";
             btnReconnect.Visibility = Visibility.Visible;
             txtBusError.Text = string.Empty;
             txtBusError.Visibility = Visibility.Collapsed;
@@ -792,7 +818,8 @@ namespace CanTraceConverter
                 // receive thread and waits on the driver, so it does not belong on the UI thread.
                 StopAllCyclicInternal();
                 await Task.Run(() => _bus.Disconnect());
-                StartSession();
+                if (!_isClosing)
+                    await StartSessionAsync(ReconnectAttempts);
             }
             catch (Exception ex)
             {

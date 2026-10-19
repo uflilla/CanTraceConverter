@@ -121,6 +121,7 @@
     <Compile Include="Services\CanOpenSdo.cs" />
     <Compile Include="Services\CapturedFrameSource.cs" />
     <Compile Include="Services\SdoPacketStore.cs" />
+    <Compile Include="Services\UcanServerAccess.cs" />
     <Compile Include="SdoPacketWindow.xaml.cs">
       <DependentUpon>SdoPacketWindow.xaml</DependentUpon>
     </Compile>

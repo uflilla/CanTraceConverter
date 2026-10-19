@@ -15,6 +15,13 @@ namespace CanTraceConverter.Services
         private SessionConfig _config;
         private CanBusStatus _busStatus = CanBusStatus.Ok;
 
+        /// <summary>
+        /// Serialises <see cref="Connect"/> with <see cref="Disconnect"/>: a connect runs off the
+        /// UI thread, and a window closed meanwhile must not leave the channel it opened held.
+        /// Never taken by the receive thread, which <see cref="Disconnect"/> may join.
+        /// </summary>
+        private readonly object _connectLock = new object();
+
         public event Action<CanMessageRecord> MessageReceived;
         public event Action<string> StatusChanged;
         public event Action Disconnected;
@@ -51,6 +58,18 @@ namespace CanTraceConverter.Services
 
         public bool Connect(SessionConfig config)
         {
+            lock (_connectLock)
+                return ConnectLocked(config);
+        }
+
+        private bool ConnectLocked(SessionConfig config)
+        {
+            if (_disposed)
+            {
+                LastError = "The session is closing.";
+                return false;
+            }
+
             if (_connected)
                 return true;
 
@@ -173,6 +192,14 @@ namespace CanTraceConverter.Services
         {
             // Mark disconnected first so any TX threads observing IsConnected stop immediately.
             _connected = false;
+
+            lock (_connectLock)
+                DisconnectLocked();
+        }
+
+        private void DisconnectLocked()
+        {
+            _connected = false;
             _busStatus = CanBusStatus.Ok;
 
             var lease = Interlocked.Exchange(ref _lease, null);
@@ -247,6 +274,9 @@ namespace CanTraceConverter.Services
                     found.Add(open);
             }
 
+            // The scan runs on a background thread while sessions open and close elsewhere;
+            // the wrapper's enumeration state and plug-and-play count are not thread-safe.
+            lock (UcanServerAccess.Lock)
             try
             {
                 var servers = USBcanServer.EnumerateHardware(
@@ -296,7 +326,10 @@ namespace CanTraceConverter.Services
             // module until InitHardware has succeeded once. Probe the first available
             // device directly so idle hardware is detected on the first scan.
             if (found.Count == 0 && !sessionsOpen)
-                ProbeFirstAvailableDevice(AddDevice);
+            {
+                lock (UcanServerAccess.Lock)
+                    ProbeFirstAvailableDevice(AddDevice);
+            }
 
             if (found.Count == 0)
             {
@@ -319,7 +352,7 @@ namespace CanTraceConverter.Services
             USBcanServer probe = null;
             try
             {
-                probe = new USBcanServer();
+                probe = UcanServerAccess.Create();
                 int result = probe.InitHardware(USBCAN_ANY_MODULE);
                 if (result != (int)eUcanReturn.USBCAN_SUCCESSFUL)
                     return;

@@ -45,7 +45,7 @@ namespace CanTraceConverter.Services
             USBcanServer server = null;
             try
             {
-                server = new USBcanServer();
+                server = UcanServerAccess.Create();
                 return true;
             }
             catch (DllNotFoundException)
@@ -72,10 +72,7 @@ namespace CanTraceConverter.Services
             {
                 // Always dispose: the wrapper only releases its plug-and-play registration
                 // and static handle entry from Dispose.
-                if (server != null)
-                {
-                    try { server.Dispose(); } catch { /* ignore */ }
-                }
+                UcanServerAccess.Dispose(server);
             }
         }
 

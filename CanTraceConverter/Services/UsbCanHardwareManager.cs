@@ -13,9 +13,9 @@ namespace CanTraceConverter.Services
     /// channel 0 and channel 1 can be opened from separate monitor windows.
     /// </summary>
     /// <remarks>
-    /// <para>Locking order is <c>Gate</c> -> <c>SharedModule._ioLock</c>. A thread must never
-    /// acquire <c>Gate</c> while holding <c>_ioLock</c>, and no lock is ever held across a
-    /// thread join.</para>
+    /// <para>Locking order is <c>Gate</c> -> <c>SharedModule._ioLock</c> -> <c>UcanServerAccess.Lock</c>.
+    /// A thread must never acquire an earlier lock while holding a later one, and no lock is
+    /// ever held across a thread join.</para>
     /// <para>Driver event handlers only record state and signal the RX thread. Every call
     /// back into the driver happens on the RX thread or on a caller thread, never inside an
     /// event handler — the wrapper documents that as a deadlock hazard.</para>
@@ -213,30 +213,36 @@ namespace CanTraceConverter.Services
                 return false;
             }
 
-            var server = new USBcanServer();
+            TrackedUcanServer server;
             int result;
-            try
-            {
-                result = server.InitHardware(target);
-            }
-            catch (Exception ex)
-            {
-                error = $"InitHardware failed: {ex.Message}";
-                SafeReleaseServer(server);
-                return false;
-            }
-
-            if (result != (int)eUcanReturn.USBCAN_SUCCESSFUL)
-            {
-                error = DescribeHwError("InitHardware", result);
-                SafeReleaseServer(server);
-                return false;
-            }
-
             var hw = new tUcanHardwareInfoEx();
-            var ch0 = new tUcanChannelInfo();
-            var ch1 = new tUcanChannelInfo();
-            server.GetHardwareInfo(ref hw, ref ch0, ref ch1);
+            byte nativeHandle;
+            lock (UcanServerAccess.Lock)
+            {
+                server = UcanServerAccess.Create();
+                try
+                {
+                    result = server.InitHardware(target);
+                }
+                catch (Exception ex)
+                {
+                    error = $"InitHardware failed: {ex.Message}";
+                    SafeReleaseServer(server);
+                    return false;
+                }
+
+                if (result != (int)eUcanReturn.USBCAN_SUCCESSFUL)
+                {
+                    error = DescribeHwError("InitHardware", result);
+                    SafeReleaseServer(server);
+                    return false;
+                }
+
+                nativeHandle = server.NativeHandle;
+                var ch0 = new tUcanChannelInfo();
+                var ch1 = new tUcanChannelInfo();
+                server.GetHardwareInfo(ref hw, ref ch0, ref ch1);
+            }
 
             byte resolved = hw.m_bDeviceNr;
             if (Modules.ContainsKey(resolved))
@@ -248,7 +254,7 @@ namespace CanTraceConverter.Services
                 return false;
             }
 
-            module = new SharedModule(server, resolved, hw);
+            module = new SharedModule(server, nativeHandle, resolved, hw);
             Modules[resolved] = module;
             return true;
         }
@@ -265,18 +271,21 @@ namespace CanTraceConverter.Services
             var candidates = new List<byte>();
             try
             {
-                USBcanServer.EnumerateHardware(
-                    0, 254,
-                    (int index, bool isUsed, tUcanHardwareInfoEx hw, ref bool doInit, ref bool tryNext) =>
-                    {
-                        // Never initialise during discovery — that would open hardware we are
-                        // only inspecting, and the driver ignores it for in-use devices anyway.
-                        doInit = false;
-                        tryNext = true;
-                        if (!isUsed && !candidates.Contains(hw.m_bDeviceNr))
-                            candidates.Add(hw.m_bDeviceNr);
-                    },
-                    true);
+                lock (UcanServerAccess.Lock)
+                {
+                    USBcanServer.EnumerateHardware(
+                        0, 254,
+                        (int index, bool isUsed, tUcanHardwareInfoEx hw, ref bool doInit, ref bool tryNext) =>
+                        {
+                            // Never initialise during discovery — that would open hardware we are
+                            // only inspecting, and the driver ignores it for in-use devices anyway.
+                            doInit = false;
+                            tryNext = true;
+                            if (!isUsed && !candidates.Contains(hw.m_bDeviceNr))
+                                candidates.Add(hw.m_bDeviceNr);
+                        },
+                        true);
+                }
             }
             catch (Exception ex)
             {
@@ -304,7 +313,7 @@ namespace CanTraceConverter.Services
                 return;
 
             try { server.Shutdown((byte)eUcanChannel.USBCAN_CHANNEL_ALL, true); } catch { /* ignore */ }
-            try { server.Dispose(); } catch { /* ignore */ }
+            UcanServerAccess.Dispose(server);
         }
 
         /// <summary>
@@ -416,6 +425,11 @@ namespace CanTraceConverter.Services
             private readonly System.Diagnostics.Stopwatch _statusClock = System.Diagnostics.Stopwatch.StartNew();
             private long _lastStatusPollMs;
             private USBcanServer _server;
+
+            /// <summary>The driver handle, kept so it can be released after a fatal disconnect
+            /// (see <see cref="TrackedUcanServer"/>).</summary>
+            private readonly byte _nativeHandle;
+            private bool _nativeHandleReleased;
             private Thread _rxThread;
             private volatile bool _rxRunning;
             private volatile bool _disconnectRequested;
@@ -433,9 +447,10 @@ namespace CanTraceConverter.Services
             public bool HasOpenChannels => _channels.Any(c => c.Open);
             public bool IsDead => _dead;
 
-            public SharedModule(USBcanServer server, byte deviceNumber, tUcanHardwareInfoEx hwInfo)
+            public SharedModule(USBcanServer server, byte nativeHandle, byte deviceNumber, tUcanHardwareInfoEx hwInfo)
             {
                 _server = server;
+                _nativeHandle = nativeHandle;
                 DeviceNumber = deviceNumber;
                 HardwareInfo = hwInfo;
                 HookEvents();
@@ -620,7 +635,7 @@ namespace CanTraceConverter.Services
                         // Dispose releases the wrapper's static handle registration and its
                         // plug-and-play reference; without it, stale entries can absorb the
                         // fatal-disconnect callback meant for a later module.
-                        try { server.Dispose(); } catch { /* ignore */ }
+                        UcanServerAccess.Dispose(server);
                     }
                 }
 
@@ -1097,6 +1112,11 @@ namespace CanTraceConverter.Services
                 // thread cannot be waiting on this thread while holding it.
                 lock (Gate)
                 {
+                    // Under Gate, so no module of this application is initialised meanwhile
+                    // and handed the same handle number.
+                    if (_fatalDisconnect)
+                        ReleaseAbandonedHandle();
+
                     if (Modules.TryGetValue(DeviceNumber, out var current) && ReferenceEquals(current, this))
                         Modules.Remove(DeviceNumber);
                 }
@@ -1123,6 +1143,33 @@ namespace CanTraceConverter.Services
 
                 AppLog.Warn("Shared USB-CAN module {0} disconnected: {1}", DeviceNumber, message);
                 DisposeHardware();
+            }
+
+            /// <summary>
+            /// After a fatal disconnect the wrapper has dropped its handle without releasing it
+            /// in the driver, and will not release it later (see <see cref="TrackedUcanServer"/>).
+            /// Releasing it here lets the module be initialised again once it is plugged back in.
+            /// </summary>
+            private void ReleaseAbandonedHandle()
+            {
+                lock (_ioLock)
+                lock (UcanServerAccess.Lock)
+                {
+                    if (_nativeHandleReleased)
+                        return;
+                    _nativeHandleReleased = true;
+
+                    try
+                    {
+                        int result = TrackedUcanServer.DeinitNativeHandle(_nativeHandle);
+                        AppLog.Info("Released driver handle {0} of disconnected device {1} (result 0x{2:X}).",
+                            _nativeHandle, DeviceNumber, result);
+                    }
+                    catch (Exception ex)
+                    {
+                        AppLog.Warn(ex, "Releasing the driver handle of disconnected device " + DeviceNumber + " failed.");
+                    }
+                }
             }
 
             /// <summary>Caller must hold <see cref="_ioLock"/>.</summary>
