@@ -143,8 +143,7 @@ namespace CanTraceConverter.Services
                 if (msg == null)
                     continue;
 
-                byte.TryParse(msg.Dlc, out byte dlc);
-                yield return new CapturedFrame(msg.TimeValue, msg.CanIdValue, msg.IsExtended, msg.IsRtr, dlc,
+                yield return new CapturedFrame(msg.TimeValue, msg.CanIdValue, msg.IsExtended, msg.IsRtr, msg.DlcValue,
                     msg.DataBytes, msg.Direction, msg.WallTime);
             }
         }

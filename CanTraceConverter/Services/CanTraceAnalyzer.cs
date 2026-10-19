@@ -75,12 +75,10 @@ namespace CanTraceConverter.Services
 
             if (!string.IsNullOrWhiteSpace(criteria.QuickSearch))
             {
-                var q = criteria.QuickSearch.Trim().ToUpperInvariant();
-                filtered = filtered.Where(m =>
-                    (m.CanId ?? string.Empty).ToUpperInvariant().Contains(q) ||
-                    (m.Data ?? string.Empty).ToUpperInvariant().Contains(q) ||
-                    (m.RawLine ?? string.Empty).ToUpperInvariant().Contains(q) ||
-                    (m.Direction ?? string.Empty).ToUpperInvariant().Contains(q));
+                // The trace line holds the direction, identifier and data too, so one formatted
+                // string per frame is searched rather than four.
+                var q = criteria.QuickSearch.Trim();
+                filtered = filtered.Where(m => m.RawLine.IndexOf(q, StringComparison.OrdinalIgnoreCase) >= 0);
             }
 
             if (!string.IsNullOrWhiteSpace(criteria.Direction) && criteria.Direction != "All")
@@ -105,8 +103,8 @@ namespace CanTraceConverter.Services
 
             if (!string.IsNullOrWhiteSpace(criteria.DataPattern))
             {
-                var pattern = criteria.DataPattern.Trim().ToUpperInvariant();
-                filtered = filtered.Where(m => (m.Data ?? string.Empty).ToUpperInvariant().Contains(pattern));
+                var pattern = criteria.DataPattern.Trim();
+                filtered = filtered.Where(m => m.Data.IndexOf(pattern, StringComparison.OrdinalIgnoreCase) >= 0);
             }
 
             if (!string.IsNullOrWhiteSpace(criteria.SourceIdContains))
@@ -121,9 +119,9 @@ namespace CanTraceConverter.Services
                 var byteIndex = criteria.FunctionCodeByteIndex;
                 filtered = filtered.Where(m =>
                 {
-                    if (m.DataBytes == null || m.DataBytes.Length <= byteIndex)
+                    if (byteIndex < 0 || byteIndex >= 8)
                         return false;
-                    return m.DataBytes[byteIndex].ToString("X2").Contains(funcCode);
+                    return m.DataByte(byteIndex).ToString("X2").Contains(funcCode);
                 });
             }
 
@@ -147,7 +145,7 @@ namespace CanTraceConverter.Services
             if (filtered == null || filtered.Count == 0)
                 return stats;
 
-            var idGroups = filtered.GroupBy(m => m.CanId).ToList();
+            var idGroups = filtered.GroupBy(IdKey).ToList();
             stats.UniqueCanIds = idGroups.Count;
             stats.RxCount = filtered.Count(m => m.Direction == "RX");
             stats.TxCount = filtered.Count(m => m.Direction == "TX");
@@ -162,7 +160,7 @@ namespace CanTraceConverter.Services
             var top = idGroups.OrderByDescending(g => g.Count()).FirstOrDefault();
             if (top != null)
             {
-                stats.MostFrequentCanId = top.Key;
+                stats.MostFrequentCanId = top.First().CanId;
                 stats.MostFrequentCount = top.Count();
             }
 
@@ -172,8 +170,8 @@ namespace CanTraceConverter.Services
         public static List<CanIdListItem> BuildCanIdList(IEnumerable<CanMessage> messages)
         {
             return messages
-                .GroupBy(m => m.CanId)
-                .Select(g => new CanIdListItem { CanId = g.Key, Count = g.Count() })
+                .GroupBy(IdKey)
+                .Select(g => new CanIdListItem { CanId = g.First().CanId, Count = g.Count() })
                 .OrderBy(x => x.CanId)
                 .ToList();
         }
@@ -196,13 +194,13 @@ namespace CanTraceConverter.Services
         public static List<CanMessageSummary> BuildUniqueSummaries(IEnumerable<CanMessage> messages)
         {
             return messages
-                .GroupBy(m => m.CanId)
+                .GroupBy(IdKey)
                 .Select(g =>
                 {
                     var list = g.OrderBy(m => m.TimeValue).ToList();
                     return new CanMessageSummary
                     {
-                        CanId = g.Key,
+                        CanId = list[0].CanId,
                         Count = list.Count,
                         Direction = SummarizeDirection(list),
                         Dlc = ModeOrFirst(list.Select(m => m.Dlc)),
@@ -219,7 +217,7 @@ namespace CanTraceConverter.Services
         public static List<CanMessage> BuildLatestPerId(IEnumerable<CanMessage> messages)
         {
             return messages
-                .GroupBy(m => m.CanId)
+                .GroupBy(IdKey)
                 .Select(g => g.OrderByDescending(m => m.TimeValue).First())
                 .OrderBy(m => m.CanId)
                 .ToList();
@@ -228,25 +226,15 @@ namespace CanTraceConverter.Services
         public static List<DataChangeRow> BuildDataChanges(IEnumerable<CanMessage> messages)
         {
             var rows = new List<DataChangeRow>();
-            foreach (var group in messages.GroupBy(m => m.CanId))
+            foreach (var group in messages.GroupBy(IdKey))
             {
-                string lastData = null;
+                CanMessage last = null;
                 foreach (var msg in group.OrderBy(m => m.TimeValue))
                 {
-                    var data = msg.Data ?? string.Empty;
-                    if (lastData != null && !string.Equals(lastData, data, StringComparison.OrdinalIgnoreCase))
-                    {
-                        rows.Add(new DataChangeRow
-                        {
-                            CanId = msg.CanId,
-                            Time = msg.Time,
-                            TimeValue = msg.TimeValue,
-                            PreviousData = lastData,
-                            NewData = data,
-                            Direction = msg.Direction
-                        });
-                    }
-                    lastData = data;
+                    // Rows refer to the frames; their text is formatted only when shown.
+                    if (last != null && !msg.HasSameData(last))
+                        rows.Add(new DataChangeRow(last, msg));
+                    last = msg;
                 }
             }
             return rows.OrderBy(r => r.TimeValue).ToList();
@@ -258,7 +246,7 @@ namespace CanTraceConverter.Services
 
             // A TX echo and a received frame with the same identifier are separate streams;
             // interleaving them halved the measured period.
-            foreach (var group in messages.GroupBy(m => new { m.CanId, m.Direction }))
+            foreach (var group in messages.GroupBy(m => new { Id = IdKey(m), m.Direction }))
             {
                 // Stable sort: equal timestamps keep their capture order.
                 var ordered = group.OrderBy(m => m.TimeValue).ToList();
@@ -281,7 +269,7 @@ namespace CanTraceConverter.Services
 
                 rows.Add(new GapAnalysisRow
                 {
-                    CanId = group.Key.CanId,
+                    CanId = ordered[0].CanId,
                     Direction = group.Key.Direction,
                     MessageCount = ordered.Count,
                     MinGapMs = min,
@@ -325,7 +313,7 @@ namespace CanTraceConverter.Services
                 {
                     TimeRange = $"{CanMessageHelper.FormatTime(start)} – {CanMessageHelper.FormatTime(start + intervalMs)}",
                     MessageCount = bucket.Count,
-                    UniqueIds = bucket.Select(m => m.CanId).Distinct().Count(),
+                    UniqueIds = bucket.Select(IdKey).Distinct().Count(),
                     RxCount = bucket.Count(m => m.Direction == "RX"),
                     TxCount = bucket.Count(m => m.Direction == "TX")
                 });
@@ -337,7 +325,7 @@ namespace CanTraceConverter.Services
         public static List<FrequencyAnalysis> BuildFrequencyAnalysis(IEnumerable<CanMessage> messages, int totalFiltered)
         {
             return messages
-                .GroupBy(m => m.CanId)
+                .GroupBy(IdKey)
                 .Select(g =>
                 {
                     var list = g.ToList();
@@ -346,7 +334,7 @@ namespace CanTraceConverter.Services
                     var durationSec = (maxTime - minTime) / 1000.0;
                     return new FrequencyAnalysis
                     {
-                        CanId = g.Key,
+                        CanId = list[0].CanId,
                         TotalCount = list.Count,
                         Percentage = totalFiltered > 0 ? list.Count * 100.0 / totalFiltered : 0,
                         FrequencyHz = durationSec > 0 ? list.Count / durationSec : 0,
@@ -356,6 +344,12 @@ namespace CanTraceConverter.Services
                 .OrderByDescending(x => x.TotalCount)
                 .ToList();
         }
+
+        /// <summary>
+        /// Groups frames by identifier without formatting a display string per frame: a trace
+        /// has millions of frames and only a few hundred identifiers.
+        /// </summary>
+        private static long IdKey(CanMessage m) => m.IsExtended ? (1L << 32) | m.CanIdValue : m.CanIdValue;
 
         private static string SummarizeDirection(List<CanMessage> list)
         {

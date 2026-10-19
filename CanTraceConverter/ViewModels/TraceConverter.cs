@@ -1,7 +1,5 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Threading;
@@ -10,9 +8,18 @@ using static UcanDotNET.USBcanServer;
 
 namespace CanTraceConverter.ViewModels
 {
+    public sealed class TraceConversionResult
+    {
+        /// <summary>0 on success, an error code otherwise.</summary>
+        public int ErrorCode { get; set; }
+        public long MessageCount { get; set; }
+        public string HeaderText { get; set; } = string.Empty;
+    }
+
     public class TraceConverter
     {
-        public event Action<int> ProgressUpdated;
+        /// <summary>Messages written so far, and the total.</summary>
+        public event Action<long, long> ProgressUpdated;
         public event Action<string> StatusUpdated;
 
         private readonly Dispatcher _dispatcher;
@@ -23,40 +30,29 @@ namespace CanTraceConverter.ViewModels
         }
 
         /// <summary>
-        /// Converts a CAN trace file and returns the formatted output as a string.
+        /// Reads a binary trace's header and, when <paramref name="outputPath"/> is given, writes
+        /// the whole trace there as text. Lines are streamed to the file: a long trace converts
+        /// to hundreds of megabytes of text, which never fit in memory in this 32-bit process.
         /// </summary>
-        /// <returns>
-        /// Tuple containing:
-        /// - result: Output string with header and all messages
-        /// - messageCount: Total number of CAN messages processed
-        /// - errorCode: 0 on success, error code otherwise
-        /// - header: Header information separately (for display purposes)
-        /// </returns>
-        public Task<(string result, int messageCount, int errorCode, string header)> ConvertAsync(
-            string inputPath,
-            bool useDifferentialTime)
+        public Task<TraceConversionResult> ConvertAsync(string inputPath, bool useDifferentialTime, string outputPath)
         {
             // Genuinely off the UI thread. This used to run inline and yield with
             // Task.Delay(1) every 500 messages, which both stuttered the UI and added a
             // system-timer tick (~15 ms) of pure waiting per yield.
-            return Task.Run(() => Convert(inputPath, useDifferentialTime));
+            return Task.Run(() => Convert(inputPath, useDifferentialTime, outputPath));
         }
 
-        private (string result, int messageCount, int errorCode, string header) Convert(
-            string inputPath,
-            bool useDifferentialTime)
+        private TraceConversionResult Convert(string inputPath, bool useDifferentialTime, string outputPath)
         {
-            int errorCode = 0;
-            int count = 0;
-            string headerText = string.Empty;
-            var sb = new StringBuilder(1024 * 1024); // Pre-allocate 1MB
+            var result = new TraceConversionResult();
 
             try
             {
                 if (!File.Exists(inputPath))
                 {
                     RaiseStatus("Input file does not exist.");
-                    return (string.Empty, 0, 0x1000, string.Empty);
+                    result.ErrorCode = 0x1000;
+                    return result;
                 }
 
                 RaiseStatus("Reading binary trace file...");
@@ -70,25 +66,46 @@ namespace CanTraceConverter.ViewModels
                 catch (InvalidDataException ex)
                 {
                     RaiseStatus(ex.Message);
-                    return (string.Empty, 0, 0x1002, string.Empty);
+                    result.ErrorCode = 0x1002;
+                    return result;
                 }
 
                 using var traceScope = trace;
-                var hwInfo = trace.HardwareInfo;
-                var activeChannel = trace.ActiveChannel;
+                result.HeaderText = trace.BuildHeaderText(inputPath);
+                result.MessageCount = trace.MessageCount;
 
-                headerText = BuildHeader(inputPath, trace.Version, trace.SystemTime, trace.OsVersion,
-                    hwInfo, trace.Channel0, trace.Channel1);
-
-                // Append header to output
-                sb.AppendLine(headerText);
-                sb.AppendLine(UcanMsgFormatProvider.GetMessageHeader());
+                if (string.IsNullOrWhiteSpace(outputPath))
+                {
+                    RaiseStatus($"Trace read: {result.MessageCount:N0} messages.");
+                    return result;
+                }
 
                 RaiseStatus("Converting messages...");
+                result.MessageCount = WriteText(trace, result.HeaderText, outputPath, useDifferentialTime);
+                RaiseStatus($"Conversion complete: {result.MessageCount:N0} messages processed.");
+            }
+            catch (Exception ex)
+            {
+                RaiseStatus($"Conversion failed: {ex.Message}");
+                result.ErrorCode = 0x7FFF;
+            }
 
-                // ── Read messages ──────────────────────────────────────
+            return result;
+        }
+
+        private long WriteText(UcanTraceFile trace, string headerText, string outputPath, bool useDifferentialTime)
+        {
+            long total = trace.MessageCount;
+            long count = 0;
+            bool highRes = trace.IsHighResTimer;
+            var line = new StringBuilder(96);
+
+            using (var writer = new StreamWriter(outputPath, false, new UTF8Encoding(true), 1 << 16))
+            {
+                writer.WriteLine(headerText);
+                writer.WriteLine(UcanMsgFormatProvider.GetMessageHeader());
+
                 tCanMsgStruct prevMsg = tCanMsgStruct.CreateInstance(0, 0);
-                var formatter = new UcanMsgFormatProvider(hwInfo, activeChannel);
                 var progressClock = System.Diagnostics.Stopwatch.StartNew();
                 long nextProgressMs = 0;
 
@@ -103,46 +120,27 @@ namespace CanTraceConverter.ViewModels
                     }
                     prevMsg = msg; // Store original message for next calculation
 
-                    string line = string.Format(formatter, "{0}", displayMsg);
-                    sb.AppendLine(line);
+                    line.Clear();
+                    UcanMsgFormatProvider.AppendMessage(line, displayMsg, highRes);
+                    line.AppendLine();
+                    writer.Write(line);
 
                     // Report progress on a time budget rather than a message count, so a
                     // large trace does not pay a marshalling round-trip every 500 rows.
                     if (progressClock.ElapsedMilliseconds >= nextProgressMs)
                     {
                         nextProgressMs = progressClock.ElapsedMilliseconds + 250;
-                        RaiseProgress(count);
+                        RaiseProgress(count, total);
                     }
                 }
 
                 // Append footer
-                sb.AppendLine();
-                sb.AppendLine($"Total number of CAN messages: {count}");
-
-                RaiseProgress(count);
-                RaiseStatus($"Conversion complete: {count:N0} messages processed.");
-            }
-            catch (Exception ex)
-            {
-                RaiseStatus($"Conversion failed: {ex.Message}");
-                errorCode = 0x7FFF;
+                writer.WriteLine();
+                writer.WriteLine($"Total number of CAN messages: {count}");
             }
 
-            return (sb.ToString(), count, errorCode, headerText);
-        }
-
-        private string BuildHeader(string path, uint ver, SYSTEMTIME st, OSVERSIONINFO os,
-            tUcanHardwareInfoEx hw, tUcanChannelInfo ch0, tUcanChannelInfo ch1)
-        {
-            var sb = new StringBuilder(512);
-            sb.AppendLine($"InputFile: {path}");
-            sb.AppendLine($"Version:   {string.Format(new VersionFormatProvider(), "PeakUcan.dll {0}", ver)}");
-            sb.AppendLine($"Date/Time: {string.Format(new SystemTimeFormatProvider(), "{0}", st)}");
-            sb.AppendLine($"OS:        {string.Format(new OsVerisonFormatProvider(), "{0}", os)}");
-            sb.AppendLine($"Hardware:  {string.Format(new UcanHwInfoFormatProvider(), "{0}", hw)}");
-            sb.AppendLine($"Channel0:  {string.Format(new UcanChannelInfoFormatProvider(), "{0}", ch0)}");
-            sb.AppendLine($"Channel1:  {string.Format(new UcanChannelInfoFormatProvider(), "{0}", ch1)}");
-            return sb.ToString();
+            RaiseProgress(count, total);
+            return count;
         }
 
         // Safe UI updates. BeginInvoke, not Invoke: the conversion thread must not block
@@ -150,7 +148,7 @@ namespace CanTraceConverter.ViewModels
         private void RaiseStatus(string msg) =>
             _dispatcher?.BeginInvoke(new Action(() => StatusUpdated?.Invoke(msg)));
 
-        private void RaiseProgress(int cnt) =>
-            _dispatcher?.BeginInvoke(new Action(() => ProgressUpdated?.Invoke(cnt)));
+        private void RaiseProgress(long cnt, long total) =>
+            _dispatcher?.BeginInvoke(new Action(() => ProgressUpdated?.Invoke(cnt, total)));
     }
 }

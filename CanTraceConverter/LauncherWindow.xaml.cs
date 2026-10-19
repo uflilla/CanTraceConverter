@@ -66,7 +66,7 @@ namespace CanTraceConverter
         {
             var dlg = new OpenFileDialog
             {
-                Filter = "Session database|*.db|CAN trace text|*.txt|All files|*.*",
+                Filter = "Session database or CAN trace|*.db;*.txt;*.ucantrc|Session database|*.db|CAN trace text|*.txt|Binary trace|*.ucantrc|All files|*.*",
                 Title = "Open trace for analysis"
             };
             if (dlg.ShowDialog() != true)
@@ -74,7 +74,9 @@ namespace CanTraceConverter
 
             var kind = dlg.FileName.EndsWith(".db", StringComparison.OrdinalIgnoreCase)
                 ? AnalysisSource.Database
-                : AnalysisSource.TextFile;
+                : dlg.FileName.EndsWith(".ucantrc", StringComparison.OrdinalIgnoreCase)
+                    ? AnalysisSource.BinaryTrace
+                    : AnalysisSource.TextFile;
 
             AppLog.Info("Opening analysis for '{0}' ({1}).", dlg.FileName, kind);
             AnalysisWindow.Open(this, dlg.FileName, kind);

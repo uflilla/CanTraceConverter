@@ -14,7 +14,8 @@ namespace CanTraceConverter.Services
     {
         ConvertedText,
         TextFile,
-        Database
+        Database,
+        BinaryTrace
     }
 
     public sealed class CanTraceLoadResult
@@ -34,6 +35,7 @@ namespace CanTraceConverter.Services
                 {
                     case AnalysisSourceKind.Database: return "SQLite session database";
                     case AnalysisSourceKind.TextFile: return "Converted text file";
+                    case AnalysisSourceKind.BinaryTrace: return "Binary trace";
                     default: return "Converted trace text";
                 }
             }
@@ -49,6 +51,10 @@ namespace CanTraceConverter.Services
 
             if (kind == AnalysisSourceKind.Database || LooksLikeDatabase(source))
                 return LoadDatabase(source);
+
+            if (kind == AnalysisSourceKind.BinaryTrace ||
+                (source.EndsWith(".ucantrc", StringComparison.OrdinalIgnoreCase) && File.Exists(source)))
+                return LoadBinaryTrace(source);
 
             if (kind == AnalysisSourceKind.TextFile || (File.Exists(source) && !LooksLikeDatabase(source)))
                 return LoadTextFile(source);
@@ -115,12 +121,46 @@ namespace CanTraceConverter.Services
             if (!File.Exists(filePath))
                 throw new FileNotFoundException("Trace text file not found.", filePath);
 
-            var text = File.ReadAllText(filePath, Encoding.UTF8);
-            var result = CanTraceTextParser.ParseText(text, filePath);
+            // Line by line: reading the whole file and splitting it held the text twice over.
+            var result = CanTraceTextParser.ParseLines(File.ReadLines(filePath, Encoding.UTF8), filePath);
             result.SourceKind = AnalysisSourceKind.TextFile;
             result.SourcePath = filePath;
             result.SourceDisplayName = Path.GetFileName(filePath);
             AppLog.Info("Analysis loaded {0} messages from text file '{1}'.", result.Messages.Count, filePath);
+            return result;
+        }
+
+        /// <summary>A binary Systec trace (.ucantrc), read directly rather than through its text.</summary>
+        private static CanTraceLoadResult LoadBinaryTrace(string tracePath)
+        {
+            var result = new CanTraceLoadResult
+            {
+                SourceKind = AnalysisSourceKind.BinaryTrace,
+                SourcePath = tracePath,
+                SourceDisplayName = Path.GetFileName(tracePath)
+            };
+
+            using (var trace = Helpers.UcanTraceFile.Open(tracePath))
+            {
+                result.HeaderText = trace.BuildHeaderText(tracePath).TrimEnd();
+                result.Messages.Capacity = (int)Math.Min(trace.MessageCount, int.MaxValue / 8);
+            }
+
+            foreach (var frame in CapturedFrameSource.Open(tracePath))
+            {
+                result.Messages.Add(new CanMessage
+                {
+                    Direction = frame.Direction,
+                    TimeValue = frame.TimestampMs,
+                    CanIdValue = frame.CanId,
+                    DlcValue = frame.Dlc,
+                    DataBytes = frame.Data,
+                    IsExtended = frame.IsExtended,
+                    IsRtr = frame.IsRtr
+                });
+            }
+
+            AppLog.Info("Analysis loaded {0} messages from binary trace '{1}'.", result.Messages.Count, tracePath);
             return result;
         }
     }
@@ -131,7 +171,20 @@ namespace CanTraceConverter.Services
             @"^(?<dir>RX|TX)\s*:\s+(?<time>[\d.,]+)\s+(?<id>[0-9A-Fa-f]+h?)\s+\((?<dlc>\d+)\)\s+(?<data>.+?)\s*$",
             RegexOptions.Compiled | RegexOptions.IgnoreCase);
 
-        public static CanTraceLoadResult ParseText(string text, string sourceHint)
+        public static CanTraceLoadResult ParseText(string text, string sourceHint) =>
+            ParseLines(ReadLines(text), sourceHint);
+
+        private static IEnumerable<string> ReadLines(string text)
+        {
+            using (var reader = new StringReader(text ?? string.Empty))
+            {
+                string line;
+                while ((line = reader.ReadLine()) != null)
+                    yield return line;
+            }
+        }
+
+        public static CanTraceLoadResult ParseLines(IEnumerable<string> lines, string sourceHint)
         {
             var result = new CanTraceLoadResult
             {
@@ -140,7 +193,6 @@ namespace CanTraceConverter.Services
                 SourceDisplayName = string.IsNullOrWhiteSpace(sourceHint) ? "Pasted / in-memory trace" : Path.GetFileName(sourceHint)
             };
 
-            var lines = text.Split(new[] { "\r\n", "\n", "\r" }, StringSplitOptions.None);
             var headerLines = new List<string>();
             bool inMessages = false;
             int parsed = 0;
@@ -201,7 +253,7 @@ namespace CanTraceConverter.Services
             var idToken = match.Groups["id"].Value.Trim();
             ParseCanIdToken(idToken, out uint canIdValue, out bool isExtended);
 
-            var dlc = match.Groups["dlc"].Value;
+            byte.TryParse(match.Groups["dlc"].Value, out byte dlc);
             var data = match.Groups["data"].Value.Trim();
             var dataBytes = ParseDataBytes(data);
             bool isRtr = data.IndexOf("Remote Request", StringComparison.OrdinalIgnoreCase) >= 0;
@@ -209,14 +261,10 @@ namespace CanTraceConverter.Services
             return new CanMessage
             {
                 Direction = dir,
-                Time = CanMessageHelper.FormatTime(timeValue),
                 TimeValue = timeValue,
-                CanId = FormatCanIdDisplay(canIdValue, isExtended),
                 CanIdValue = canIdValue,
-                Dlc = dlc,
-                Data = data,
+                DlcValue = dlc,
                 DataBytes = dataBytes,
-                RawLine = line.Trim(),
                 IsExtended = isExtended,
                 IsRtr = isRtr
             };
@@ -229,7 +277,7 @@ namespace CanTraceConverter.Services
             isExtended = hex.Length > 3 || canIdValue > 0x7FF;
         }
 
-        internal static string FormatCanIdDisplay(uint canId, bool isExtended) =>
+        public static string FormatCanIdDisplay(uint canId, bool isExtended) =>
             isExtended ? $"{canId:X8}h" : $"{canId,3:X3}h".Trim();
 
         internal static byte[] ParseDataBytes(string data)

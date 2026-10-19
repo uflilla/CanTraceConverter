@@ -115,16 +115,31 @@
           </Border>
 
           <Border Grid.Row="1" Padding="12">
-            <TextBox x:Name="txtOutput"
-                     AcceptsReturn="True"
+            <!-- Virtualized: a converted trace can have millions of lines, read on demand. -->
+            <ListBox x:Name="lstOutput"
                      Background="Transparent"
                      BorderThickness="0"
                      FontFamily="Consolas"
                      Foreground="{DynamicResource ThemeTextPrimaryBrush}"
-                     HorizontalScrollBarVisibility="Disabled"
-                     IsReadOnly="True"
-                     TextWrapping="NoWrap"
-                     VerticalScrollBarVisibility="Auto" />
+                     SelectionMode="Extended"
+                     ScrollViewer.CanContentScroll="True"
+                     ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                     ScrollViewer.VerticalScrollBarVisibility="Auto"
+                     VirtualizingPanel.IsVirtualizing="True"
+                     VirtualizingPanel.VirtualizationMode="Recycling"
+                     VirtualizingPanel.ScrollUnit="Item"
+                     PreviewKeyDown="LstOutput_PreviewKeyDown">
+              <ListBox.ItemContainerStyle>
+                <Style TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
+                  <Setter Property="Padding" Value="2,0" />
+                </Style>
+              </ListBox.ItemContainerStyle>
+              <ListBox.ItemTemplate>
+                <DataTemplate>
+                  <TextBlock Text="{Binding Text, Mode=OneTime}" />
+                </DataTemplate>
+              </ListBox.ItemTemplate>
+            </ListBox>
           </Border>
         </Grid>
       </Border>

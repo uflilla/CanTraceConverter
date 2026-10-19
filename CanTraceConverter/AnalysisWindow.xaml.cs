@@ -1,8 +1,10 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Threading;
@@ -15,21 +17,32 @@ namespace CanTraceConverter
     {
         ConvertedText,
         TextFile,
-        Database
+        Database,
+        BinaryTrace
     }
 
     public partial class AnalysisWindow : Window
     {
+        /// <summary>
+        /// Above this many rows a grid column is not sortable: sorting millions of rows through
+        /// the collection view froze the window. Messages are already in capture order.
+        /// </summary>
+        private const int MaxSortableRows = 200000;
+
         private readonly DispatcherTimer _filterTimer;
         private List<CanMessage> _allMessages = new List<CanMessage>();
         private List<CanMessage> _filteredMessages = new List<CanMessage>();
-        private Dictionary<string, List<CanMessage>> _messagesByCanId = new Dictionary<string, List<CanMessage>>();
         private CanTraceLoadResult _loadResult;
         private string _sourceInput;
         private AnalysisSource _sourceKind;
         private string _currentViewMode = "All Messages";
         private bool _isLoading;
         private bool _suppressFilterEvents;
+        private bool _closed;
+
+        /// <summary>Bumped per filter / view refresh; a background result for an older one is dropped.</summary>
+        private int _filterVersion;
+        private int _viewVersion;
 
         public AnalysisWindow(string source, AnalysisSource kind = AnalysisSource.ConvertedText)
         {
@@ -45,7 +58,10 @@ namespace CanTraceConverter
 
             InitializeComponent();
             Closed += AnalysisWindow_Closed;
-            LoadData(source, kind);
+
+            // Loaded off the UI thread once the window is up: a long trace takes seconds.
+            txtStatus.Text = "Loading trace…";
+            Loaded += async (_, __) => await LoadDataAsync(source, kind);
         }
 
         /// <summary>
@@ -71,22 +87,35 @@ namespace CanTraceConverter
 
         private void AnalysisWindow_Closed(object sender, EventArgs e)
         {
+            _closed = true;
             _filterTimer.Stop();
             _filterTimer.Tick -= FilterTimer_Tick;
         }
 
-        private void LoadData(string source, AnalysisSource kind)
+        private async Task LoadDataAsync(string source, AnalysisSource kind)
         {
+            _isLoading = true;
+            _suppressFilterEvents = true;
+            var previousCursor = Cursor;
+            Cursor = System.Windows.Input.Cursors.Wait;
+            btnReload.IsEnabled = false;
             try
             {
-                _isLoading = true;
-                _suppressFilterEvents = true;
+                txtStatus.Text = "Loading trace…";
+
+                // Drop the previous trace first so a reload does not hold two in memory.
+                _allMessages = new List<CanMessage>();
+                _filteredMessages = _allMessages;
+                dgMessages.ItemsSource = null;
 
                 var loaderKind = MapSourceKind(kind);
-                _loadResult = CanTraceLoader.Load(source, loaderKind);
+                var result = await Task.Run(() => CanTraceLoader.Load(source, loaderKind));
+                if (_closed)
+                    return;
+
+                _loadResult = result;
                 _allMessages = _loadResult.Messages ?? new List<CanMessage>();
-                _messagesByCanId = CanTraceAnalyzer.IndexByCanId(_allMessages);
-                _filteredMessages = new List<CanMessage>(_allMessages);
+                _filteredMessages = _allMessages;
 
                 txtSourceInfo.Text = BuildSourceDescription();
                 txtSourceBadge.Text = _loadResult.SourceLabel;
@@ -95,13 +124,13 @@ namespace CanTraceConverter
                     ? Visibility.Visible
                     : Visibility.Collapsed;
 
-                RefreshUniqueIdList();
-                ApplyFiltersInternal(refreshView: false);
-                RefreshCurrentView();
-                UpdateStatistics();
-                UpdateMessageCount();
+                _isLoading = false;
+                _suppressFilterEvents = false;
+                txtStatus.Text = $"Analysing {_allMessages.Count:N0} messages…";
+                await ApplyFiltersAsync();
 
-                txtStatus.Text = $"Loaded {_allMessages.Count:N0} messages — {_loadResult.SourceLabel}";
+                if (!_closed)
+                    txtStatus.Text = $"Loaded {_allMessages.Count:N0} messages — {_loadResult.SourceLabel}";
             }
             catch (Exception ex)
             {
@@ -115,6 +144,8 @@ namespace CanTraceConverter
             {
                 _isLoading = false;
                 _suppressFilterEvents = false;
+                Cursor = previousCursor;
+                btnReload.IsEnabled = true;
             }
         }
 
@@ -126,6 +157,8 @@ namespace CanTraceConverter
                     return AnalysisSourceKind.Database;
                 case AnalysisSource.TextFile:
                     return AnalysisSourceKind.TextFile;
+                case AnalysisSource.BinaryTrace:
+                    return AnalysisSourceKind.BinaryTrace;
                 default:
                     return AnalysisSourceKind.ConvertedText;
             }
@@ -164,37 +197,69 @@ namespace CanTraceConverter
             return fallback;
         }
 
-        private void ApplyFiltersInternal(bool refreshView = true)
+        /// <summary>
+        /// Filters, rebuilds the identifier list and statistics, and refreshes the view. The work
+        /// runs off the UI thread: on a trace of millions of frames each pass takes seconds.
+        /// </summary>
+        /// <returns>False when a newer refresh superseded this one.</returns>
+        private async Task<bool> ApplyFiltersAsync(bool refreshView = true)
         {
             if (_isLoading || _allMessages == null)
-                return;
+                return false;
 
-            _filteredMessages = CanTraceAnalyzer.ApplyFilters(_allMessages, BuildFilterCriteria());
-            RefreshUniqueIdList();
+            int version = ++_filterVersion;
+            var all = _allMessages;
+            var criteria = BuildFilterCriteria();
+            bool unfiltered = IsUnfiltered(criteria);
+
+            var (filtered, idList, stats) = await Task.Run(() =>
+            {
+                // No filter keeps the full list rather than copying it.
+                var f = unfiltered ? all : CanTraceAnalyzer.ApplyFilters(all, criteria);
+                return (f, CanTraceAnalyzer.BuildCanIdList(f), CanTraceAnalyzer.ComputeStatistics(all, f));
+            });
+
+            if (_closed || version != _filterVersion || !ReferenceEquals(all, _allMessages))
+                return false;
+
+            _filteredMessages = filtered;
+            if (lstUniqueIds != null)
+                lstUniqueIds.ItemsSource = idList;
+            if (txtStatistics != null)
+                txtStatistics.Text = stats.ToDisplayText();
+            UpdateMessageCount();
 
             if (refreshView)
-                RefreshCurrentView();
-
-            UpdateStatistics();
-            UpdateMessageCount();
+                await RefreshCurrentViewAsync();
+            return true;
         }
 
-        private void RefreshUniqueIdList()
+        private static bool IsUnfiltered(CanTraceFilterCriteria c) =>
+            string.IsNullOrWhiteSpace(c.QuickSearch) &&
+            (string.IsNullOrWhiteSpace(c.Direction) || c.Direction == "All") &&
+            string.IsNullOrWhiteSpace(c.CanIdContains) &&
+            (string.IsNullOrWhiteSpace(c.Dlc) || c.Dlc == "All") &&
+            string.IsNullOrWhiteSpace(c.TimeFrom) &&
+            string.IsNullOrWhiteSpace(c.TimeTo) &&
+            string.IsNullOrWhiteSpace(c.DataPattern) &&
+            string.IsNullOrWhiteSpace(c.SourceIdContains) &&
+            string.IsNullOrWhiteSpace(c.FunctionCodeHex) &&
+            c.ExtendedOnly != true &&
+            !c.HideRtr;
+
+        /// <summary>Runs a refresh, reporting a failure in the status bar rather than crashing.</summary>
+        private async void RunAsync(Func<Task> action)
         {
-            if (lstUniqueIds == null)
-                return;
-
-            var idList = CanTraceAnalyzer.BuildCanIdList(_filteredMessages);
-            lstUniqueIds.ItemsSource = idList;
-        }
-
-        private void UpdateStatistics()
-        {
-            if (txtStatistics == null)
-                return;
-
-            var stats = CanTraceAnalyzer.ComputeStatistics(_allMessages, _filteredMessages);
-            txtStatistics.Text = stats.ToDisplayText();
+            try
+            {
+                await action();
+            }
+            catch (Exception ex)
+            {
+                AppLog.Error(ex, "Analysis refresh failed.");
+                if (!_closed)
+                    txtStatus.Text = "Error: " + ex.Message;
+            }
         }
 
         private void UpdateMessageCount()
@@ -225,9 +290,11 @@ namespace CanTraceConverter
         private void FilterTimer_Tick(object sender, EventArgs e)
         {
             _filterTimer.Stop();
-            ApplyFiltersInternal();
-            if (txtStatus != null)
-                txtStatus.Text = $"{_filteredMessages.Count:N0} messages match filters";
+            RunAsync(async () =>
+            {
+                if (await ApplyFiltersAsync() && txtStatus != null && !_closed)
+                    txtStatus.Text = $"{_filteredMessages.Count:N0} messages match filters";
+            });
         }
 
         private void RestartFilterTimer()
@@ -238,8 +305,12 @@ namespace CanTraceConverter
 
         private void btnApplyFilters_Click(object sender, RoutedEventArgs e)
         {
-            ApplyFiltersInternal();
-            txtStatus.Text = $"{_filteredMessages.Count:N0} messages match filters";
+            txtStatus.Text = "Applying filters…";
+            RunAsync(async () =>
+            {
+                if (await ApplyFiltersAsync() && !_closed)
+                    txtStatus.Text = $"{_filteredMessages.Count:N0} messages match filters";
+            });
         }
 
         private void btnClearFilters_Click(object sender, RoutedEventArgs e)
@@ -265,8 +336,8 @@ namespace CanTraceConverter
                 _suppressFilterEvents = false;
             }
 
-            ApplyFiltersInternal();
             txtStatus.Text = "All filters cleared";
+            RunAsync(() => ApplyFiltersAsync());
         }
 
         private void btnClearCanId_Click(object sender, RoutedEventArgs e)
@@ -284,8 +355,8 @@ namespace CanTraceConverter
             if (lstUniqueIds.SelectedItem is CanIdListItem item)
             {
                 txtCanIdFilter.Text = item.CanId;
-                ApplyFiltersInternal();
                 txtStatus.Text = $"Filtered to CAN ID {item.CanId}";
+                RunAsync(() => ApplyFiltersAsync());
             }
         }
 
@@ -301,7 +372,7 @@ namespace CanTraceConverter
                     ? Visibility.Visible
                     : Visibility.Collapsed;
             }
-            RefreshCurrentView();
+            RunAsync(RefreshCurrentViewAsync);
         }
 
         private void txtTimelineInterval_TextChanged(object sender, TextChangedEventArgs e)
@@ -312,135 +383,136 @@ namespace CanTraceConverter
             if (chkAutoApply?.IsChecked == true)
                 RestartFilterTimer();
             else
-                RefreshCurrentView();
+                RunAsync(RefreshCurrentViewAsync);
         }
 
-        private void RefreshCurrentView()
+        /// <summary>
+        /// Shows the selected view of the filtered messages. Views that summarise the trace
+        /// are built off the UI thread; on millions of frames they take seconds.
+        /// </summary>
+        private async Task RefreshCurrentViewAsync()
         {
             if (dgMessages == null || _filteredMessages == null)
                 return;
 
             panelMessageDetail.Visibility = Visibility.Collapsed;
 
-            switch (_currentViewMode)
+            int version = ++_viewVersion;
+            var mode = _currentViewMode;
+            var messages = _filteredMessages;
+            int total = _allMessages.Count;
+            double interval = ParseTimelineInterval();
+
+            SetColumnsFor(mode);
+            dgMessages.ItemsSource = null;
+            if (mode != "All Messages")
+                txtMessageCount.Text = "Building view…";
+
+            var (items, countText) = await Task.Run(() => BuildView(mode, messages, total, interval));
+            if (_closed || version != _viewVersion)
+                return;
+
+            dgMessages.CanUserSortColumns = items.Count <= MaxSortableRows;
+            dgMessages.ItemsSource = items;
+            txtMessageCount.Text = countText;
+        }
+
+        private static (IList items, string countText) BuildView(string mode, List<CanMessage> messages, int total, double interval)
+        {
+            switch (mode)
             {
                 case "Latest per CAN ID":
-                    ShowLatestPerId();
-                    break;
+                {
+                    var latest = CanTraceAnalyzer.BuildLatestPerId(messages);
+                    return (latest, $"{latest.Count:N0} CAN IDs (latest message each)");
+                }
                 case "Unique CAN IDs":
-                    ShowUniqueCanIds();
-                    break;
+                {
+                    var summaries = CanTraceAnalyzer.BuildUniqueSummaries(messages);
+                    return (summaries, $"{summaries.Count:N0} unique CAN IDs");
+                }
                 case "Data Changes":
-                    ShowDataChanges();
-                    break;
+                {
+                    var changes = CanTraceAnalyzer.BuildDataChanges(messages);
+                    return (changes, $"{changes.Count:N0} data change events");
+                }
                 case "Inter-message Gaps":
-                    ShowGapAnalysis();
-                    break;
+                {
+                    var gaps = CanTraceAnalyzer.BuildGapAnalysis(messages);
+                    return (gaps, $"{gaps.Count:N0} CAN ID / direction streams with timing data");
+                }
                 case "Message Timeline":
-                    ShowMessageTimeline();
-                    break;
+                {
+                    var timeline = CanTraceAnalyzer.BuildTimeline(messages, interval);
+                    return (timeline, $"{timeline.Count:N0} time buckets ({interval:N0} ms each)");
+                }
                 case "Frequency Analysis":
-                    ShowFrequencyAnalysis();
-                    break;
+                {
+                    var frequency = CanTraceAnalyzer.BuildFrequencyAnalysis(messages, messages.Count);
+                    return (frequency, $"{frequency.Count:N0} CAN IDs analyzed");
+                }
                 default:
-                    ShowAllMessages();
-                    break;
+                    return (messages, $"{messages.Count:N0} messages displayed (of {total:N0} total)");
             }
         }
 
-        private void ShowAllMessages()
+        private void SetColumnsFor(string mode)
         {
-            SetMessageColumns(
-                Col("DIR", "Direction", 60),
-                Col("TIME (msec)", "Time", 100),
-                Col("CAN ID", "CanId", 110),
-                Col("DLC", "Dlc", 50),
-                Col("DATA", "Data", star: true));
+            switch (mode)
+            {
+                case "Unique CAN IDs":
+                    SetSummaryColumns();
+                    break;
 
-            dgMessages.ItemsSource = _filteredMessages;
-            txtMessageCount.Text = $"{_filteredMessages.Count:N0} messages displayed (of {_allMessages.Count:N0} total)";
-        }
+                case "Data Changes":
+                    SetMessageColumns(
+                        Col("CAN ID", "CanId", 110),
+                        Col("TIME", "Time", 100),
+                        Col("DIR", "Direction", 60),
+                        Col("PREVIOUS DATA", "PreviousData", 220),
+                        Col("NEW DATA", "NewData", star: true));
+                    break;
 
-        private void ShowLatestPerId()
-        {
-            SetMessageColumns(
-                Col("DIR", "Direction", 60),
-                Col("TIME (msec)", "Time", 100),
-                Col("CAN ID", "CanId", 110),
-                Col("DLC", "Dlc", 50),
-                Col("DATA", "Data", star: true));
+                case "Inter-message Gaps":
+                    SetMessageColumns(
+                        Col("CAN ID", "CanId", 110),
+                        Col("DIR", "Direction", 60),
+                        Col("MSGS", "MessageCount", 70),
+                        Col("MIN GAP", "MinGapDisplay", 100),
+                        Col("AVG GAP", "AvgGapDisplay", 100),
+                        Col("MAX GAP", "MaxGapDisplay", 100),
+                        Col("JITTER (σ)", "JitterDisplay", 100),
+                        Col("EST. RATE", "EstHzDisplay", 100));
+                    break;
 
-            var latest = CanTraceAnalyzer.BuildLatestPerId(_filteredMessages);
-            dgMessages.ItemsSource = latest;
-            txtMessageCount.Text = $"{latest.Count:N0} CAN IDs (latest message each)";
-        }
+                case "Message Timeline":
+                    SetMessageColumns(
+                        Col("TIME RANGE", "TimeRange", 220),
+                        Col("MESSAGES", "MessageCount", 90),
+                        Col("UNIQUE IDs", "UniqueIds", 90),
+                        Col("RX", "RxCount", 70),
+                        Col("TX", "TxCount", 70));
+                    break;
 
-        private void ShowUniqueCanIds()
-        {
-            SetSummaryColumns();
-            var summaries = CanTraceAnalyzer.BuildUniqueSummaries(_filteredMessages);
-            dgMessages.ItemsSource = summaries;
-            txtMessageCount.Text = $"{summaries.Count:N0} unique CAN IDs";
-        }
+                case "Frequency Analysis":
+                    SetMessageColumns(
+                        Col("CAN ID", "CanId", 110),
+                        Col("COUNT", "TotalCount", 80),
+                        Col("%", "PercentageDisplay", 80),
+                        Col("FREQ (Hz)", "FrequencyDisplay", 100),
+                        Col("DIR", "Direction", 70));
+                    break;
 
-        private void ShowDataChanges()
-        {
-            dgMessages.Columns.Clear();
-            dgMessages.Columns.Add(Col("CAN ID", "CanId", 110));
-            dgMessages.Columns.Add(Col("TIME", "Time", 100));
-            dgMessages.Columns.Add(Col("DIR", "Direction", 60));
-            dgMessages.Columns.Add(Col("PREVIOUS DATA", "PreviousData", 220));
-            dgMessages.Columns.Add(Col("NEW DATA", "NewData", star: true));
-
-            var changes = CanTraceAnalyzer.BuildDataChanges(_filteredMessages);
-            dgMessages.ItemsSource = changes;
-            txtMessageCount.Text = $"{changes.Count:N0} data change events";
-        }
-
-        private void ShowGapAnalysis()
-        {
-            dgMessages.Columns.Clear();
-            dgMessages.Columns.Add(Col("CAN ID", "CanId", 110));
-            dgMessages.Columns.Add(Col("DIR", "Direction", 60));
-            dgMessages.Columns.Add(Col("MSGS", "MessageCount", 70));
-            dgMessages.Columns.Add(Col("MIN GAP", "MinGapDisplay", 100));
-            dgMessages.Columns.Add(Col("AVG GAP", "AvgGapDisplay", 100));
-            dgMessages.Columns.Add(Col("MAX GAP", "MaxGapDisplay", 100));
-            dgMessages.Columns.Add(Col("JITTER (σ)", "JitterDisplay", 100));
-            dgMessages.Columns.Add(Col("EST. RATE", "EstHzDisplay", 100));
-
-            var gaps = CanTraceAnalyzer.BuildGapAnalysis(_filteredMessages);
-            dgMessages.ItemsSource = gaps;
-            txtMessageCount.Text = $"{gaps.Count:N0} CAN ID / direction streams with timing data";
-        }
-
-        private void ShowMessageTimeline()
-        {
-            dgMessages.Columns.Clear();
-            dgMessages.Columns.Add(Col("TIME RANGE", "TimeRange", 220));
-            dgMessages.Columns.Add(Col("MESSAGES", "MessageCount", 90));
-            dgMessages.Columns.Add(Col("UNIQUE IDs", "UniqueIds", 90));
-            dgMessages.Columns.Add(Col("RX", "RxCount", 70));
-            dgMessages.Columns.Add(Col("TX", "TxCount", 70));
-
-            var interval = ParseTimelineInterval();
-            var timeline = CanTraceAnalyzer.BuildTimeline(_filteredMessages, interval);
-            dgMessages.ItemsSource = timeline;
-            txtMessageCount.Text = $"{timeline.Count:N0} time buckets ({interval:N0} ms each)";
-        }
-
-        private void ShowFrequencyAnalysis()
-        {
-            dgMessages.Columns.Clear();
-            dgMessages.Columns.Add(Col("CAN ID", "CanId", 110));
-            dgMessages.Columns.Add(Col("COUNT", "TotalCount", 80));
-            dgMessages.Columns.Add(Col("%", "PercentageDisplay", 80));
-            dgMessages.Columns.Add(Col("FREQ (Hz)", "FrequencyDisplay", 100));
-            dgMessages.Columns.Add(Col("DIR", "Direction", 70));
-
-            var frequency = CanTraceAnalyzer.BuildFrequencyAnalysis(_filteredMessages, _filteredMessages.Count);
-            dgMessages.ItemsSource = frequency;
-            txtMessageCount.Text = $"{frequency.Count:N0} CAN IDs analyzed";
+                default:
+                    // All Messages and Latest per CAN ID.
+                    SetMessageColumns(
+                        Col("DIR", "Direction", 60),
+                        Col("TIME (msec)", "Time", 100),
+                        Col("CAN ID", "CanId", 110),
+                        Col("DLC", "Dlc", 50),
+                        Col("DATA", "Data", star: true));
+                    break;
+            }
         }
 
         private byte GetSdoClientNodeId()
@@ -513,7 +585,7 @@ namespace CanTraceConverter
             }
         }
 
-        private void btnExportFiltered_Click(object sender, RoutedEventArgs e)
+        private async void btnExportFiltered_Click(object sender, RoutedEventArgs e)
         {
             try
             {
@@ -529,13 +601,28 @@ namespace CanTraceConverter
                 if (dlg.ShowDialog() != true)
                     return;
 
-                if (dlg.FileName.EndsWith(".csv", StringComparison.OrdinalIgnoreCase))
-                    ExportCsv(dlg.FileName);
-                else
-                    ExportText(dlg.FileName);
+                var path = dlg.FileName;
+                var messages = _filteredMessages;
+                var header = _loadResult?.HeaderText ?? string.Empty;
+                txtStatus.Text = $"Exporting {messages.Count:N0} messages…";
+                var button = sender as UIElement;
+                if (button != null)
+                    button.IsEnabled = false;
+                try
+                {
+                    if (path.EndsWith(".csv", StringComparison.OrdinalIgnoreCase))
+                        await Task.Run(() => ExportCsv(path, messages));
+                    else
+                        await Task.Run(() => ExportText(path, header, messages));
+                }
+                finally
+                {
+                    if (button != null)
+                        button.IsEnabled = true;
+                }
 
-                txtStatus.Text = $"Exported {_filteredMessages.Count:N0} messages to {Path.GetFileName(dlg.FileName)}";
-                MessageBox.Show($"Successfully exported {_filteredMessages.Count:N0} messages.",
+                txtStatus.Text = $"Exported {messages.Count:N0} messages to {Path.GetFileName(path)}";
+                MessageBox.Show($"Successfully exported {messages.Count:N0} messages.",
                     "Export Complete", MessageBoxButton.OK, MessageBoxImage.Information);
             }
             catch (Exception ex)
@@ -546,51 +633,56 @@ namespace CanTraceConverter
             }
         }
 
-        private void ExportText(string path)
+        // Exports are written a line at a time; building them in memory first did not fit a
+        // long trace in this 32-bit process.
+        private static void ExportText(string path, string header, List<CanMessage> messages)
         {
-            var sb = new StringBuilder();
-            sb.AppendLine(_loadResult?.HeaderText ?? string.Empty);
-            sb.AppendLine("===============================================================================");
-            sb.AppendLine("DIR TIME(msec) ID------- DLC DATA-------------------");
-            sb.AppendLine("===============================================================================");
+            using (var writer = new StreamWriter(path, false, Encoding.UTF8, 1 << 16))
+            {
+                writer.WriteLine(header);
+                writer.WriteLine("===============================================================================");
+                writer.WriteLine("DIR TIME(msec) ID------- DLC DATA-------------------");
+                writer.WriteLine("===============================================================================");
 
-            foreach (var msg in _filteredMessages)
-                sb.AppendLine(msg.RawLine ?? string.Empty);
+                foreach (var msg in messages)
+                    writer.WriteLine(msg.RawLine);
 
-            sb.AppendLine();
-            sb.AppendLine($"Total number of CAN messages: {_filteredMessages.Count}");
-            sb.AppendLine($"Exported on: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
-
-            File.WriteAllText(path, sb.ToString(), Encoding.UTF8);
+                writer.WriteLine();
+                writer.WriteLine($"Total number of CAN messages: {messages.Count}");
+                writer.WriteLine($"Exported on: {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
+            }
         }
 
-        private void ExportCsv(string path)
+        private static void ExportCsv(string path, List<CanMessage> messages)
         {
-            var sb = new StringBuilder();
-            sb.AppendLine("Direction,TimeMs,CanId,Dlc,Data,Extended,Rtr,WallTime,RawLine");
-
-            foreach (var msg in _filteredMessages)
+            using (var writer = new StreamWriter(path, false, Encoding.UTF8, 1 << 16))
             {
-                sb.Append(Csv(msg.Direction));
-                sb.Append(',');
-                sb.Append(Csv(msg.Time));
-                sb.Append(',');
-                sb.Append(Csv(msg.CanId));
-                sb.Append(',');
-                sb.Append(Csv(msg.Dlc));
-                sb.Append(',');
-                sb.Append(Csv(msg.Data));
-                sb.Append(',');
-                sb.Append(msg.IsExtended ? "1" : "0");
-                sb.Append(',');
-                sb.Append(msg.IsRtr ? "1" : "0");
-                sb.Append(',');
-                sb.Append(Csv(msg.WallTime?.ToString("o") ?? string.Empty));
-                sb.Append(',');
-                sb.AppendLine(Csv(msg.RawLine));
-            }
+                writer.WriteLine("Direction,TimeMs,CanId,Dlc,Data,Extended,Rtr,WallTime,RawLine");
 
-            File.WriteAllText(path, sb.ToString(), Encoding.UTF8);
+                var sb = new StringBuilder(160);
+                foreach (var msg in messages)
+                {
+                    sb.Clear();
+                    sb.Append(Csv(msg.Direction));
+                    sb.Append(',');
+                    sb.Append(Csv(msg.Time));
+                    sb.Append(',');
+                    sb.Append(Csv(msg.CanId));
+                    sb.Append(',');
+                    sb.Append(Csv(msg.Dlc));
+                    sb.Append(',');
+                    sb.Append(Csv(msg.Data));
+                    sb.Append(',');
+                    sb.Append(msg.IsExtended ? "1" : "0");
+                    sb.Append(',');
+                    sb.Append(msg.IsRtr ? "1" : "0");
+                    sb.Append(',');
+                    sb.Append(Csv(msg.WallTime?.ToString("o") ?? string.Empty));
+                    sb.Append(',');
+                    sb.Append(Csv(msg.RawLine));
+                    writer.WriteLine(sb);
+                }
+            }
         }
 
         private static string Csv(string value)
@@ -607,8 +699,12 @@ namespace CanTraceConverter
             if (_loadResult?.SourceKind != AnalysisSourceKind.Database || string.IsNullOrWhiteSpace(_loadResult.SourcePath))
                 return;
 
-            LoadData(_loadResult.SourcePath, AnalysisSource.Database);
-            txtStatus.Text = "Database reloaded";
+            RunAsync(async () =>
+            {
+                await LoadDataAsync(_loadResult.SourcePath, AnalysisSource.Database);
+                if (!_closed)
+                    txtStatus.Text = "Database reloaded";
+            });
         }
 
         /// <summary>
@@ -620,7 +716,11 @@ namespace CanTraceConverter
             if (_loadResult == null)
                 return;
 
-            if (_loadResult.SourceKind == AnalysisSourceKind.Database && !string.IsNullOrWhiteSpace(_loadResult.SourcePath))
+            // A database or binary trace is streamed from its file rather than from the frames
+            // held here.
+            bool fromFile = _loadResult.SourceKind == AnalysisSourceKind.Database ||
+                            _loadResult.SourceKind == AnalysisSourceKind.BinaryTrace;
+            if (fromFile && !string.IsNullOrWhiteSpace(_loadResult.SourcePath))
                 SdoPacketWindow.OpenFile(this, _loadResult.SourcePath);
             else
                 SdoPacketWindow.OpenMessages(this, _allMessages, GetSdoClientNodeId(), BuildSourceDescription());

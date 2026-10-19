@@ -49,7 +49,13 @@ namespace CanTraceConverter
         private readonly IReadOnlyList<CanMessage> _messages;
         private byte _standardClientNode;
 
-        private readonly ObservableCollection<SdoTransfer> _packets = new ObservableCollection<SdoTransfer>();
+        /// <summary>Bytes of a packet's payload shown in the dump; Save Payload writes all of it.</summary>
+        private const int MaxDumpBytes = 64 * 1024;
+
+        /// <summary>Above this many new packets, the list is told once rather than per packet.</summary>
+        private const int BulkAddThreshold = 100;
+
+        private readonly PacketCollection _packets = new PacketCollection();
         private readonly ICollectionView _view;
         private readonly DispatcherTimer _filterTimer;
         private readonly DispatcherTimer _pollTimer;
@@ -321,9 +327,10 @@ namespace CanTraceConverter
             if (_closed)
                 return;
 
-            _packets.Clear();
-            foreach (var t in transfers)
-                _packets.Add(t);
+            // One reset, not a change notification per packet: a long trace has tens of
+            // thousands of packets, and adding them one by one through the filtered view
+            // and grid froze the window.
+            _packets.ReplaceAll(transfers);
             UpdateStatus(origin + $" ({frameCount:N0} CAN frames)");
         }
 
@@ -364,9 +371,20 @@ namespace CanTraceConverter
             if (transfers.Count == 0)
                 return;
 
+            // A first load can be tens of thousands of packets; live polls add a few, added
+            // singly so the grid keeps its selection and scroll position.
+            if (transfers.Count > BulkAddThreshold)
+            {
+                _packets.AddRange(transfers);
+            }
+            else
+            {
+                foreach (var t in transfers)
+                    _packets.Add(t);
+            }
+
             foreach (var t in transfers)
             {
-                _packets.Add(t);
                 if (t.DatabaseId > _lastPacketId)
                     _lastPacketId = t.DatabaseId;
             }
@@ -458,7 +476,13 @@ namespace CanTraceConverter
             }
 
             txtSummary.Text = DescribePacket(t);
-            txtPayloadDump.Text = t.PayloadSize > 0 ? t.PayloadDump : "(no payload bytes captured)";
+            if (t.PayloadSize == 0)
+                txtPayloadDump.Text = "(no payload bytes captured)";
+            else if (t.PayloadSize > MaxDumpBytes)
+                txtPayloadDump.Text = t.FormatPayloadDump(MaxDumpBytes) + Environment.NewLine +
+                    $"… first {MaxDumpBytes:N0} of {t.PayloadSize:N0} bytes shown — use Save Payload for all of it.";
+            else
+                txtPayloadDump.Text = t.PayloadDump;
 
             if (t.Frames.Count == 0 && t.FrameCount > 0 && t.DatabaseId == 0)
             {
@@ -614,6 +638,36 @@ namespace CanTraceConverter
             _closed = true;
             _pollTimer.Stop();
             _filterTimer.Stop();
+        }
+
+        // ------------------------------------------------------------------ packet list
+
+        /// <summary>An observable list that can take many packets with a single notification.</summary>
+        private sealed class PacketCollection : ObservableCollection<SdoTransfer>
+        {
+            public void ReplaceAll(IEnumerable<SdoTransfer> packets)
+            {
+                CheckReentrancy();
+                Items.Clear();
+                AddItems(packets);
+            }
+
+            public void AddRange(IEnumerable<SdoTransfer> packets)
+            {
+                CheckReentrancy();
+                AddItems(packets);
+            }
+
+            private void AddItems(IEnumerable<SdoTransfer> packets)
+            {
+                foreach (var p in packets)
+                    Items.Add(p);
+
+                OnPropertyChanged(new PropertyChangedEventArgs(nameof(Count)));
+                OnPropertyChanged(new PropertyChangedEventArgs("Item[]"));
+                OnCollectionChanged(new System.Collections.Specialized.NotifyCollectionChangedEventArgs(
+                    System.Collections.Specialized.NotifyCollectionChangedAction.Reset));
+            }
         }
 
         // ------------------------------------------------------------------ filter model

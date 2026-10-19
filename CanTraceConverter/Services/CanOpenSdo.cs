@@ -300,35 +300,36 @@ namespace CanTraceConverter.Services
         public string PayloadHex => SdoTracker.FormatBytes(PayloadBuffer, PayloadBuffer.Count);
 
         /// <summary>Offset / hex / ASCII dump, 16 bytes per line.</summary>
-        public string PayloadDump
+        public string PayloadDump => FormatPayloadDump(PayloadBuffer.Count);
+
+        /// <summary>The dump of the first <paramref name="maxBytes"/> payload bytes.</summary>
+        public string FormatPayloadDump(int maxBytes)
         {
-            get
+            int count = Math.Min(maxBytes, PayloadBuffer.Count);
+            var sb = new StringBuilder();
+            for (int offset = 0; offset < count; offset += 16)
             {
-                var sb = new StringBuilder();
-                for (int offset = 0; offset < PayloadBuffer.Count; offset += 16)
+                sb.Append(offset.ToString("X4")).Append("  ");
+                var ascii = new StringBuilder(16);
+                for (int i = 0; i < 16; i++)
                 {
-                    sb.Append(offset.ToString("X4")).Append("  ");
-                    var ascii = new StringBuilder(16);
-                    for (int i = 0; i < 16; i++)
+                    int at = offset + i;
+                    if (at < count)
                     {
-                        int at = offset + i;
-                        if (at < PayloadBuffer.Count)
-                        {
-                            byte b = PayloadBuffer[at];
-                            sb.Append(b.ToString("X2")).Append(' ');
-                            ascii.Append(b >= 0x20 && b < 0x7F ? (char)b : '.');
-                        }
-                        else
-                        {
-                            sb.Append("   ");
-                        }
-                        if (i == 7)
-                            sb.Append(' ');
+                        byte b = PayloadBuffer[at];
+                        sb.Append(b.ToString("X2")).Append(' ');
+                        ascii.Append(b >= 0x20 && b < 0x7F ? (char)b : '.');
                     }
-                    sb.Append(' ').Append(ascii).AppendLine();
+                    else
+                    {
+                        sb.Append("   ");
+                    }
+                    if (i == 7)
+                        sb.Append(' ');
                 }
-                return sb.ToString().TrimEnd();
+                sb.Append(' ').Append(ascii).AppendLine();
             }
+            return sb.ToString().TrimEnd();
         }
 
         internal void AddIssue(string issue)
@@ -535,8 +536,7 @@ namespace CanTraceConverter.Services
             if (msg == null)
                 return null;
 
-            byte.TryParse(msg.Dlc, out byte dlc);
-            return Process(msg.CanIdValue, msg.IsExtended, msg.IsRtr, dlc, msg.DataBytes,
+            return Process(msg.CanIdValue, msg.IsExtended, msg.IsRtr, msg.DlcValue, msg.DataBytes,
                 msg.Direction, msg.TimeValue, 0, msg.WallTime, completed);
         }
 

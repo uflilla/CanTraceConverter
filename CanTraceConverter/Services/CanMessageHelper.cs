@@ -49,13 +49,9 @@ namespace CanTraceConverter.Services
             {
                 Direction = record.Direction,
                 TimeValue = record.TimestampMs,
-                Time = FormatTime(record.TimestampMs),
                 CanIdValue = record.CanId,
-                CanId = record.CanIdDisplay,
-                Dlc = record.Dlc.ToString(),
-                Data = record.DataDisplay,
+                DlcValue = record.Dlc,
                 DataBytes = record.Data,
-                RawLine = record.ToRawLine(),
                 IsExtended = record.IsExtended,
                 IsRtr = record.IsRtr,
                 WallTime = record.WallTime

@@ -1,21 +1,108 @@
 using System;
+using CanTraceConverter.Services;
 
 namespace CanTraceConverter.Models
 {
-    public class CanMessage
+    /// <summary>
+    /// One CAN frame in the analysis window. A trace holds millions, so only the raw values are
+    /// stored and every display string is formatted when read: with five strings and a byte
+    /// array per frame, a 3.7 million frame trace needed about 1.5 GB and ran this 32-bit
+    /// process out of memory.
+    /// </summary>
+    public sealed class CanMessage
     {
-        public string Direction { get; set; }
-        public string Time { get; set; }
+        private static readonly string[] DlcTexts =
+            { "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15" };
+
+        private ulong _data;
+        private long _wallTicks;
+        private string _direction = "RX";
+
+        /// <summary>RX, or TX for a frame this adapter sent.</summary>
+        public string Direction
+        {
+            get => _direction;
+            // Shared instances, not one string per frame.
+            set => _direction = value == "TX" ? "TX" : value == "RX" ? "RX" : value;
+        }
+
         public double TimeValue { get; set; }
-        public string CanId { get; set; }
         public uint CanIdValue { get; set; }
-        public string Dlc { get; set; }
-        public string Data { get; set; }
-        public byte[] DataBytes { get; set; }
-        public string RawLine { get; set; }
+        public byte DlcValue { get; set; }
         public bool IsExtended { get; set; }
         public bool IsRtr { get; set; }
-        public DateTime? WallTime { get; set; }
+
+        public DateTime? WallTime
+        {
+            get => _wallTicks != 0 ? new DateTime(_wallTicks) : (DateTime?)null;
+            set => _wallTicks = value?.Ticks ?? 0;
+        }
+
+        /// <summary>The 8 data bytes. Stored packed; each read returns a new array.</summary>
+        public byte[] DataBytes
+        {
+            get => BitConverter.GetBytes(_data);
+            set
+            {
+                var bytes = new byte[8];
+                if (value != null)
+                    Array.Copy(value, bytes, Math.Min(8, value.Length));
+                _data = BitConverter.ToUInt64(bytes, 0);
+            }
+        }
+
+        /// <summary>The data bytes packed into one value, for comparing frames without allocating.</summary>
+        public ulong PackedData => _data;
+
+        public byte DataByte(int index) => index >= 0 && index < 8 ? (byte)(_data >> (index * 8)) : (byte)0;
+
+        public string Time => CanMessageHelper.FormatTime(TimeValue);
+        public string CanId => CanTraceTextParser.FormatCanIdDisplay(CanIdValue, IsExtended);
+        public string Dlc => DlcValue < DlcTexts.Length ? DlcTexts[DlcValue] : DlcValue.ToString();
+
+        public string Data
+        {
+            get
+            {
+                if (IsRtr)
+                    return "Remote Request";
+
+                // Formatted for every frame a filter or export touches, so built directly.
+                var chars = new char[23];
+                for (int i = 0; i < 8; i++)
+                {
+                    int at = i * 3;
+                    if (i > 0)
+                        chars[at - 1] = ' ';
+                    if (i < DlcValue)
+                    {
+                        byte b = DataByte(i);
+                        chars[at] = HexDigits[b >> 4];
+                        chars[at + 1] = HexDigits[b & 0xF];
+                    }
+                    else
+                    {
+                        chars[at] = '-';
+                        chars[at + 1] = '-';
+                    }
+                }
+                return new string(chars);
+            }
+        }
+
+        private const string HexDigits = "0123456789ABCDEF";
+
+        /// <summary>The frame as a trace text line.</summary>
+        public string RawLine =>
+            string.Concat(Direction, ": ", CanMessageHelper.FormatTraceTime(TimeValue), "  ", CanId, " (", Dlc, ") ", Data);
+
+        /// <summary>Same DLC, RTR flag and data bytes.</summary>
+        public bool HasSameData(CanMessage other) =>
+            other != null && other.IsRtr == IsRtr && other.DlcValue == DlcValue &&
+            (IsRtr || (_data & DataMask) == (other._data & DataMask));
+
+        /// <summary>Only the bytes the DLC covers count.</summary>
+        private ulong DataMask => DlcValue >= 8 ? ulong.MaxValue : (1UL << (DlcValue * 8)) - 1;
     }
 
     public class CanMessageSummary
@@ -39,14 +126,24 @@ namespace CanTraceConverter.Models
         public string DisplayText => $"{CanId}  ({Count:N0})";
     }
 
+    /// <summary>A frame whose data differs from the previous frame with its identifier.</summary>
     public class DataChangeRow
     {
-        public string CanId { get; set; }
-        public string Time { get; set; }
-        public double TimeValue { get; set; }
-        public string PreviousData { get; set; }
-        public string NewData { get; set; }
-        public string Direction { get; set; }
+        private readonly CanMessage _previous;
+        private readonly CanMessage _current;
+
+        public DataChangeRow(CanMessage previous, CanMessage current)
+        {
+            _previous = previous;
+            _current = current;
+        }
+
+        public string CanId => _current.CanId;
+        public string Time => _current.Time;
+        public double TimeValue => _current.TimeValue;
+        public string PreviousData => _previous.Data;
+        public string NewData => _current.Data;
+        public string Direction => _current.Direction;
     }
 
     public class GapAnalysisRow

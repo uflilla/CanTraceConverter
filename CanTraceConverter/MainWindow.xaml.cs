@@ -2,7 +2,8 @@
 using System;
 using System.Diagnostics;
 using System.IO;
-using System.Threading.Tasks;
+using System.Linq;
+using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 using Path = System.IO.Path;
@@ -14,8 +15,14 @@ namespace CanTraceConverter
     /// </summary>
     public partial class MainWindow : Window
     {
+        /// <summary>Most lines copied to the clipboard at once; the full text is in the output file.</summary>
+        private const int MaxCopyLines = 100000;
+
         private TraceConverter _converter;
         private bool _isConverting;
+
+        /// <summary>The converted trace shown in the output list; holds the trace file open.</summary>
+        private TraceLineList _output;
 
         public MainWindow()
         {
@@ -23,7 +30,23 @@ namespace CanTraceConverter
             _converter = new TraceConverter(Dispatcher);
 
             _converter.StatusUpdated += status => txtStatus.Text = status;
-            _converter.ProgressUpdated += count => Title = $"USB-CAN Trace Converter – {count:N0} messages";
+            _converter.ProgressUpdated += (count, total) =>
+            {
+                Title = $"USB-CAN Trace Converter – {count:N0} messages";
+                if (_isConverting && total > 0)
+                    txtStatus.Text = $"Writing text file... {count:N0} of {total:N0} messages ({count * 100 / total}%)";
+            };
+
+            CommandBindings.Add(new System.Windows.Input.CommandBinding(
+                System.Windows.Input.ApplicationCommands.Copy, CopyOutput_Executed, CopyOutput_CanExecute));
+            Closed += (_, __) => SetOutput(null);
+        }
+
+        private void SetOutput(TraceLineList output)
+        {
+            lstOutput.ItemsSource = output;
+            _output?.Dispose();
+            _output = output;
         }
 
         private async void btnConvert_Click(object sender, RoutedEventArgs e)
@@ -51,7 +74,7 @@ namespace CanTraceConverter
             _isConverting = true;
             btnConvert.IsEnabled = false;
             btnConvert.Content = "Converting...";
-            txtOutput.Clear();
+            SetOutput(null);
             txtStatus.Text = "Starting conversion...";
 
             try
@@ -59,46 +82,34 @@ namespace CanTraceConverter
                 bool diff = chkDiffTime.IsChecked == true;
                 bool writeToFile = !string.IsNullOrWhiteSpace(txtOutputFile.Text);
                 var inputPath = txtInputFile.Text;
-                var outputPath = txtOutputFile.Text;
+                var outputPath = writeToFile ? txtOutputFile.Text : null;
 
-                // Runs on a background thread; the await resumes back on the UI thread.
-                var (result, messageCount, errorCode, header) = await _converter.ConvertAsync(
-                    inputPath,
-                    diff
-                );
+                // Runs on a background thread and streams the text file; the await resumes
+                // back on the UI thread.
+                var result = await _converter.ConvertAsync(inputPath, diff, outputPath);
 
-                if (errorCode == 0)
+                if (result.ErrorCode == 0)
                 {
-                    // Display output in UI
-                    txtOutput.Text = result;
+                    // Lines are formatted from the trace only as they scroll into view.
+                    SetOutput(new TraceLineList(inputPath, result.HeaderText, diff));
+                    if (lstOutput.Items.Count > 0)
+                        lstOutput.ScrollIntoView(lstOutput.Items[0]);
 
-                    // Write to file if output path is specified
-                    if (writeToFile)
-                    {
-                        try
-                        {
-                            await Task.Run(() => File.WriteAllText(outputPath, result, System.Text.Encoding.UTF8));
-                            txtStatus.Text = $"Conversion successful: {messageCount:N0} messages. File saved to: {outputPath}";
-                        }
-                        catch (Exception ex)
-                        {
-                            MessageBox.Show($"Failed to write output file:\n{ex.Message}",
-                                "File Write Error", MessageBoxButton.OK, MessageBoxImage.Error);
-                            txtStatus.Text = $"Conversion successful but file write failed: {ex.Message}";
-                        }
-                    }
-                    else
-                    {
-                        txtStatus.Text = $"Conversion successful: {messageCount:N0} messages processed.";
-                    }
-
-                    // Scroll to top
-                    txtOutput.ScrollToHome();
+                    txtStatus.Text = writeToFile
+                        ? $"Conversion successful: {result.MessageCount:N0} messages. File saved to: {outputPath}"
+                        : $"Conversion successful: {result.MessageCount:N0} messages processed.";
+                    Title = $"USB-CAN Trace Converter – {result.MessageCount:N0} messages";
+                }
+                else if (result.ErrorCode == 0x7FFF && writeToFile)
+                {
+                    txtStatus.Text = "Conversion failed while writing the output file.";
+                    MessageBox.Show($"Failed to write output file:\n{outputPath}",
+                        "File Write Error", MessageBoxButton.OK, MessageBoxImage.Error);
                 }
                 else
                 {
-                    txtStatus.Text = $"Conversion failed with error code 0x{errorCode:X4}";
-                    MessageBox.Show($"Conversion failed with error code 0x{errorCode:X4}",
+                    txtStatus.Text = $"Conversion failed with error code 0x{result.ErrorCode:X4}";
+                    MessageBox.Show($"Conversion failed with error code 0x{result.ErrorCode:X4}",
                         "Conversion Error", MessageBoxButton.OK, MessageBoxImage.Error);
                 }
             }
@@ -159,7 +170,7 @@ namespace CanTraceConverter
 
         private void btnClear_Click(object sender, RoutedEventArgs e)
         {
-            txtOutput.Clear();
+            SetOutput(null);
             txtStatus.Text = "Output cleared.";
             Title = $"USB-CAN Trace Converter";
         }
@@ -215,14 +226,48 @@ namespace CanTraceConverter
 
         private void btnAnalyze_Click(object sender, RoutedEventArgs e)
         {
-            if (string.IsNullOrWhiteSpace(txtOutput.Text))
+            if (_output == null)
             {
                 MessageBox.Show("No converted data available to analyze. Please convert a trace file first.",
                     "No Data", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
 
-            AnalysisWindow.Open(this, txtOutput.Text, AnalysisSource.ConvertedText);
+            // Read from the binary trace itself: re-parsing the converted text needed the
+            // whole text in memory as well as the messages.
+            AnalysisWindow.Open(this, _output.TracePath, AnalysisSource.BinaryTrace);
+        }
+
+        private void LstOutput_PreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+        {
+            // Select All would materialise every line of the trace.
+            if (e.Key == System.Windows.Input.Key.A &&
+                (System.Windows.Input.Keyboard.Modifiers & System.Windows.Input.ModifierKeys.Control) != 0)
+            {
+                e.Handled = true;
+                txtStatus.Text = "Select All is not available for the output list — the full text is in the output file.";
+            }
+        }
+
+        private void CopyOutput_CanExecute(object sender, System.Windows.Input.CanExecuteRoutedEventArgs e)
+        {
+            e.CanExecute = _output != null && lstOutput.SelectedItems.Count > 0;
+        }
+
+        private void CopyOutput_Executed(object sender, System.Windows.Input.ExecutedRoutedEventArgs e)
+        {
+            var lines = lstOutput.SelectedItems.OfType<TraceLine>().OrderBy(l => l.Index).Take(MaxCopyLines).ToList();
+            if (lines.Count == 0)
+                return;
+
+            var sb = new StringBuilder();
+            foreach (var line in lines)
+                sb.AppendLine(line.Text);
+            Clipboard.SetText(sb.ToString());
+
+            txtStatus.Text = lstOutput.SelectedItems.Count > MaxCopyLines
+                ? $"Copied the first {MaxCopyLines:N0} selected lines."
+                : $"Copied {lines.Count:N0} line(s).";
         }
     }
 }

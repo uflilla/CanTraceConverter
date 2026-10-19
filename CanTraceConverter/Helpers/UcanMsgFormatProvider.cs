@@ -1,4 +1,6 @@
 ﻿using System;
+using System.Globalization;
+using System.Text;
 
 namespace CanTraceConverter.Helpers
 {
@@ -85,42 +87,12 @@ namespace CanTraceConverter.Helpers
                     if (argToBeFormatted is UcanDotNET.USBcanServer.tCanMsgStruct)
                     {
                         CanMsg = (UcanDotNET.USBcanServer.tCanMsgStruct)argToBeFormatted;
+                        bool highRes = UcanDotNET.USBcanServer.CheckIs_G4(this.m_UcanHwInfo) &&
+                            ((this.m_CanChannelInfo.m_bMode & (byte)UcanDotNET.USBcanServer.tUcanMode.kUcanModeHighResTimer) != 0);
 
-                        str  = ((CanMsg.m_bFF & (byte)UcanDotNET.USBcanServer.eUcanMsgFrameFormat.USBCAN_MSG_FF_ECHO) != 0) ? "TX: " : "RX: ";
-
-                        // The device counter is an unsigned 32-bit value that the wrapper types
-                        // as int; formatted signed it printed negative times past 2^31 ticks.
-                        uint time = unchecked((uint)CanMsg.m_dwTime);
-                        if (UcanDotNET.USBcanServer.CheckIs_G4(this.m_UcanHwInfo) &&
-                            ((this.m_CanChannelInfo.m_bMode & (byte)UcanDotNET.USBcanServer.tUcanMode.kUcanModeHighResTimer) != 0))
-                        {
-                            str += string.Format("{0:D8}.{1:D1} ", time / 10, time % 10);
-                        }
-                        else
-                        {
-                            str += string.Format("{0:D9}  ", time);
-                        }
-                        str += ((CanMsg.m_bFF & (byte)UcanDotNET.USBcanServer.eUcanMsgFrameFormat.USBCAN_MSG_FF_EXT) != 0) ?
-                            string.Format ("{0:X8}h ", CanMsg.m_dwID) : string.Format ("     {0:X3}h ", CanMsg.m_dwID);
-                        str += string.Format ("({0}) ", CanMsg.m_bDLC);
-                        if ((CanMsg.m_bFF & (byte)UcanDotNET.USBcanServer.eUcanMsgFrameFormat.USBCAN_MSG_FF_RTR) != 0)
-                        {
-                            str += "Remote Request";
-                        }
-                        else
-                        {
-                            for (int i = 0; i < 8; i++)
-                            {
-                                if (i < CanMsg.m_bDLC)
-                                {
-                                    str += string.Format("{0:X2} ", CanMsg.m_bData[i]);
-                                }
-                                else
-                                {
-                                    str += "-- ";
-                                }
-                            }
-                        }
+                        var sb = new StringBuilder(64);
+                        AppendMessage(sb, CanMsg, highRes);
+                        str = sb.ToString();
                     }
                 }
                 catch (Exception ex)
@@ -136,5 +108,88 @@ namespace CanTraceConverter.Helpers
         }
 
         #endregion
+
+        private const string HexDigits = "0123456789ABCDEF";
+
+        /// <summary>
+        /// Appends one message line in the trace text format. A converted trace has millions of
+        /// lines, so this avoids the per-field string.Format and concatenation allocations.
+        /// </summary>
+        /// <param name="highResTimer">Timestamps are 0.1 ms ticks of a G4 high-resolution timer.</param>
+        public static void AppendMessage(StringBuilder sb, UcanDotNET.USBcanServer.tCanMsgStruct msg, bool highResTimer)
+        {
+            byte ff = msg.m_bFF;
+            sb.Append((ff & (byte)UcanDotNET.USBcanServer.eUcanMsgFrameFormat.USBCAN_MSG_FF_ECHO) != 0 ? "TX: " : "RX: ");
+
+            // The device counter is an unsigned 32-bit value that the wrapper types
+            // as int; formatted signed it printed negative times past 2^31 ticks.
+            uint time = unchecked((uint)msg.m_dwTime);
+            if (highResTimer)
+            {
+                AppendDecimal(sb, time / 10, 8);
+                sb.Append('.');
+                sb.Append((char)('0' + time % 10));
+                sb.Append(' ');
+            }
+            else
+            {
+                AppendDecimal(sb, time, 9);
+                sb.Append("  ");
+            }
+
+            uint id = unchecked((uint)msg.m_dwID);
+            if ((ff & (byte)UcanDotNET.USBcanServer.eUcanMsgFrameFormat.USBCAN_MSG_FF_EXT) != 0)
+            {
+                AppendHex(sb, id, 8);
+            }
+            else
+            {
+                sb.Append("     ");
+                AppendHex(sb, id, 3);
+            }
+            sb.Append("h (");
+            sb.Append(msg.m_bDLC);
+            sb.Append(") ");
+
+            if ((ff & (byte)UcanDotNET.USBcanServer.eUcanMsgFrameFormat.USBCAN_MSG_FF_RTR) != 0)
+            {
+                sb.Append("Remote Request");
+                return;
+            }
+
+            for (int i = 0; i < 8; i++)
+            {
+                if (i < msg.m_bDLC)
+                {
+                    byte b = msg.m_bData[i];
+                    sb.Append(HexDigits[b >> 4]).Append(HexDigits[b & 0xF]).Append(' ');
+                }
+                else
+                {
+                    sb.Append("-- ");
+                }
+            }
+        }
+
+        /// <summary>Zero-padded to at least <paramref name="minDigits"/>, like "D9".</summary>
+        private static void AppendDecimal(StringBuilder sb, uint value, int minDigits)
+        {
+            var digits = value.ToString(CultureInfo.InvariantCulture);
+            if (digits.Length < minDigits)
+                sb.Append('0', minDigits - digits.Length);
+            sb.Append(digits);
+        }
+
+        /// <summary>Upper-case hex, at least <paramref name="minDigits"/> wide, like "X8".</summary>
+        private static void AppendHex(StringBuilder sb, uint value, int minDigits)
+        {
+            int digits = 1;
+            for (uint v = value >> 4; v != 0; v >>= 4)
+                digits++;
+            if (digits < minDigits)
+                sb.Append('0', minDigits - digits);
+            for (int shift = (digits - 1) * 4; shift >= 0; shift -= 4)
+                sb.Append(HexDigits[(int)((value >> shift) & 0xF)]);
+        }
     }
 }

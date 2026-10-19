@@ -125,6 +125,7 @@
       <DependentUpon>SdoPacketWindow.xaml</DependentUpon>
     </Compile>
     <Compile Include="ViewModels\TraceConverter.cs" />
+    <Compile Include="ViewModels\TraceLineList.cs" />
     <Page Include="Themes\Dark.xaml">
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
