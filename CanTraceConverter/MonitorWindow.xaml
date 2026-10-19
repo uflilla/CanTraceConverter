@@ -199,14 +199,14 @@
             </Style>
           </DataGrid.CellStyle>
           <DataGrid.Columns>
-            <DataGridCheckBoxColumn Header="Cycle" Binding="{Binding CycleEnabled, UpdateSourceTrigger=PropertyChanged}" Width="58">
-              <DataGridCheckBoxColumn.ElementStyle>
-                <Style TargetType="CheckBox" BasedOn="{StaticResource TransmitGridCheckStyle}" />
-              </DataGridCheckBoxColumn.ElementStyle>
-              <DataGridCheckBoxColumn.EditingElementStyle>
-                <Style TargetType="CheckBox" BasedOn="{StaticResource TransmitGridCheckStyle}" />
-              </DataGridCheckBoxColumn.EditingElementStyle>
-            </DataGridCheckBoxColumn>
+            <DataGridTemplateColumn Header="Cycle" Width="58">
+              <DataGridTemplateColumn.CellTemplate>
+                <DataTemplate>
+                  <CheckBox IsChecked="{Binding CycleEnabled, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                            Style="{StaticResource TransmitGridCheckStyle}" />
+                </DataTemplate>
+              </DataGridTemplateColumn.CellTemplate>
+            </DataGridTemplateColumn>
             <DataGridTextColumn Header="CAN ID" Binding="{Binding CanIdHex, UpdateSourceTrigger=PropertyChanged}" Width="100">
               <DataGridTextColumn.ElementStyle>
                 <Style TargetType="TextBlock" BasedOn="{StaticResource TransmitGridCellTextStyle}" />
@@ -215,14 +215,14 @@
                 <Style TargetType="TextBox" BasedOn="{StaticResource TransmitGridEditTextStyle}" />
               </DataGridTextColumn.EditingElementStyle>
             </DataGridTextColumn>
-            <DataGridCheckBoxColumn Header="Ext" Binding="{Binding Extended, UpdateSourceTrigger=PropertyChanged}" Width="48">
-              <DataGridCheckBoxColumn.ElementStyle>
-                <Style TargetType="CheckBox" BasedOn="{StaticResource TransmitGridCheckStyle}" />
-              </DataGridCheckBoxColumn.ElementStyle>
-              <DataGridCheckBoxColumn.EditingElementStyle>
-                <Style TargetType="CheckBox" BasedOn="{StaticResource TransmitGridCheckStyle}" />
-              </DataGridCheckBoxColumn.EditingElementStyle>
-            </DataGridCheckBoxColumn>
+            <DataGridTemplateColumn Header="Ext" Width="48">
+              <DataGridTemplateColumn.CellTemplate>
+                <DataTemplate>
+                  <CheckBox IsChecked="{Binding Extended, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                            Style="{StaticResource TransmitGridCheckStyle}" />
+                </DataTemplate>
+              </DataGridTemplateColumn.CellTemplate>
+            </DataGridTemplateColumn>
             <DataGridComboBoxColumn Header="DLC"
                                     SelectedItemBinding="{Binding Dlc, UpdateSourceTrigger=PropertyChanged}"
                                     Width="56">
@@ -295,6 +295,9 @@
           <Button MinWidth="130" Margin="0,0,12,0" Click="BtnSdoPackets_Click"
                   Content="SDO Packets" Style="{StaticResource SecondaryButton}"
                   ToolTip="Live view of reassembled SDO packets: who sent what to whom" />
+          <Button x:Name="btnLogging" MinWidth="130" Margin="0,0,12,0" Click="BtnLogging_Click"
+                  Content="Pause Logging" Style="{StaticResource SecondaryButton}"
+                  ToolTip="Start or pause saving messages to the session database" />
           <Button x:Name="btnExport" MinWidth="150" Margin="0,0,12,0" Click="BtnExport_Click"
                   Content="Export to Text..." Style="{StaticResource SecondaryButton}" />
           <Button MinWidth="150" Margin="0,0,12,0" Click="BtnOpenLogDir_Click"

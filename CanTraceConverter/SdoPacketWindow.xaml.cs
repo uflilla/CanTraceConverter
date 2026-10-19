@@ -11,10 +11,11 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Threading;
+using CanTraceConverter.Helpers;
 using CanTraceConverter.Models;
 using CanTraceConverter.Services;
-using CanTraceConverter.ViewModels;
 using Microsoft.Win32;
+using UcanDotNET;
 
 namespace CanTraceConverter
 {
@@ -151,26 +152,69 @@ namespace CanTraceConverter
 
                     case SourceKind.TextFile:
                     {
-                        var result = await Task.Run(() => CanTraceLoader.Load(_path, AnalysisSourceKind.TextFile));
-                        await ReassembleAsync(result.Messages, "reassembled from trace text");
+                        string path = _path;
+                        await ReassembleAsync((tracker, transfers) =>
+                        {
+                            long frames = 0;
+                            foreach (var line in File.ReadLines(path))
+                            {
+                                if (line.StartsWith("Total number", StringComparison.OrdinalIgnoreCase))
+                                    break;
+
+                                var msg = CanTraceTextParser.ParseMessageLine(line);
+                                if (msg == null)
+                                    continue;
+                                frames++;
+                                tracker.Process(msg, transfers);
+                            }
+                            return frames;
+                        }, "reassembled from trace text");
                         break;
                     }
 
                     case SourceKind.BinaryTrace:
                     {
-                        txtStatus.Text = "Converting binary trace…";
-                        var converter = new TraceConverter(Dispatcher);
-                        var (text, _, errorCode, _) = await converter.ConvertAsync(_path, useDifferentialTime: false);
-                        if (errorCode != 0)
-                            throw new InvalidDataException($"Trace conversion failed (0x{errorCode:X4}).");
-                        var result = await Task.Run(() => CanTraceTextParser.ParseText(text, _path));
-                        await ReassembleAsync(result.Messages, "reassembled from binary trace");
+                        // Streamed straight from the file. Converting it to text first held the
+                        // whole trace in memory several times over, which a large trace did not
+                        // survive in this 32-bit process.
+                        string path = _path;
+                        await ReassembleAsync((tracker, transfers) =>
+                        {
+                            long frames = 0;
+                            using (var trace = UcanTraceFile.Open(path))
+                            {
+                                double tickMs = trace.TickMs;
+                                while (trace.TryReadMessage(out var msg))
+                                {
+                                    frames++;
+                                    byte ff = msg.m_bFF;
+                                    tracker.Process(
+                                        unchecked((uint)msg.m_dwID),
+                                        (ff & (byte)USBcanServer.eUcanMsgFrameFormat.USBCAN_MSG_FF_EXT) != 0,
+                                        (ff & (byte)USBcanServer.eUcanMsgFrameFormat.USBCAN_MSG_FF_RTR) != 0,
+                                        msg.m_bDLC, msg.m_bData,
+                                        (ff & (byte)USBcanServer.eUcanMsgFrameFormat.USBCAN_MSG_FF_ECHO) != 0 ? "TX" : "RX",
+                                        unchecked((uint)msg.m_dwTime) * tickMs, 0, null, transfers);
+                                }
+                            }
+                            return frames;
+                        }, "reassembled from binary trace");
                         break;
                     }
 
                     default:
-                        await ReassembleAsync(_messages, "reassembled from the loaded trace");
+                    {
+                        var messages = _messages;
+                        await ReassembleAsync((tracker, transfers) =>
+                        {
+                            if (messages == null)
+                                return 0;
+                            foreach (var msg in messages)
+                                tracker.Process(msg, transfers);
+                            return messages.Count;
+                        }, "reassembled from the loaded trace");
                         break;
+                    }
                 }
             }
             catch (Exception ex)
@@ -204,22 +248,46 @@ namespace CanTraceConverter
             // Recorded before packets were stored: rebuild them from the raw frames.
             byte client = await Task.Run(() => SdoPacketStore.ReadStandardClientNodeId(_path));
             _standardClientNode = client;
-            var result = await Task.Run(() => CanTraceLoader.Load(_path, AnalysisSourceKind.Database));
-            await ReassembleAsync(result.Messages, "reassembled from raw frames (database has no stored packets)");
+            string path = _path;
+            await ReassembleAsync((tracker, transfers) =>
+            {
+                long frames = 0;
+                using (var repo = CanMessageRepository.OpenExisting(path))
+                {
+                    repo.ReadMessages(null, null, msg =>
+                    {
+                        frames++;
+                        tracker.Process(msg, transfers);
+                    });
+                }
+                return frames;
+            }, "reassembled from raw frames (database has no stored packets)");
         }
 
-        private async Task ReassembleAsync(IReadOnlyList<CanMessage> messages, string origin)
+        /// <summary>
+        /// Feeds a source through an SDO tracker on a background thread. Frames are kept
+        /// undecoded and messages are streamed, so a trace of millions of frames fits in memory.
+        /// </summary>
+        /// <param name="feed">Processes every CAN frame of the source; returns the frame count.</param>
+        private async Task ReassembleAsync(Func<SdoTracker, List<SdoTransfer>, long> feed, string origin)
         {
             txtStatus.Text = "Reassembling SDO packets…";
             byte client = _standardClientNode;
-            var transfers = await Task.Run(() => SdoTracker.Reassemble(messages, client));
+            var (transfers, frameCount) = await Task.Run(() =>
+            {
+                var tracker = new SdoTracker(client, retainFrames: false);
+                var completed = new List<SdoTransfer>();
+                long frames = feed(tracker, completed);
+                tracker.FinishReassembly(completed);
+                return (completed, frames);
+            });
             if (_closed)
                 return;
 
             _packets.Clear();
             foreach (var t in transfers)
                 _packets.Add(t);
-            UpdateStatus(origin + $" ({messages?.Count ?? 0:N0} CAN frames)");
+            UpdateStatus(origin + $" ({frameCount:N0} CAN frames)");
         }
 
         private async Task PollAsync()
@@ -354,6 +422,16 @@ namespace CanTraceConverter
 
             txtSummary.Text = DescribePacket(t);
             txtPayloadDump.Text = t.PayloadSize > 0 ? t.PayloadDump : "(no payload bytes captured)";
+
+            if (t.Frames.Count == 0 && t.FrameCount > 0 && t.DatabaseId == 0)
+            {
+                // Reassembled in memory with its frames kept undecoded: decode them now, and
+                // only for display, so browsing packets does not grow the memory held.
+                var decoded = SdoTracker.DecodeFrames(t);
+                dgFrames.ItemsSource = decoded;
+                txtFramesHeader.Text = $"Frames ({decoded.Count})";
+                return;
+            }
 
             if (t.Frames.Count == 0 && t.DatabaseId > 0 && _path != null)
             {

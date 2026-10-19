@@ -165,10 +165,11 @@ CREATE INDEX IF NOT EXISTS idx_can_messages_can_id ON can_messages(can_id);
                 cmd.ExecuteNonQuery();
             }
 
-            _sdoTracker = new SdoTracker(config.SdoClientNodeId);
+            // Every SDO is captured whatever its client: 29-bit IDs name both nodes, and an
+            // 11-bit 600h/580h ID names only the server, so its client is left as 0.
+            _sdoTracker = new SdoTracker(0);
 
             SetSessionInfo("title", config.Title);
-            SetSessionInfo("sdo_client_node_id", config.SdoClientNodeId.ToString());
             SetSessionInfo("device", config.DeviceNumber.ToString());
             SetSessionInfo("channel", config.Channel.ToString());
             SetSessionInfo("baudrate_kbps", config.BaudRateKbps.ToString());

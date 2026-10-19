@@ -224,17 +224,6 @@ namespace CanTraceConverter
                 return null;
             }
 
-            if (!TryParseNodeId(txtSdoClientNode?.Text, out byte sdoClientNode))
-            {
-                if (validate)
-                {
-                    MessageBox.Show("SDO client node ID must be between 0 and 127 (decimal, or hex as 0x7F / 7Fh).",
-                        "Invalid node ID", MessageBoxButton.OK, MessageBoxImage.Warning);
-                    return null;
-                }
-                sdoClientNode = 0;
-            }
-
             return new SessionConfig
             {
                 Title = txtTitle.Text?.Trim() ?? "Session",
@@ -243,38 +232,8 @@ namespace CanTraceConverter
                 BaudRateKbps = baud,
                 ListenOnly = chkListenOnly.IsChecked == true,
                 LogDirectory = txtLogDir.Text?.Trim() ?? SessionConfig.DefaultLogDirectory,
-                SdoClientNodeId = sdoClientNode
+                LoggingEnabled = chkLogging.IsChecked == true
             };
-        }
-
-        private static bool TryParseNodeId(string text, out byte nodeId)
-        {
-            nodeId = 0;
-            if (string.IsNullOrWhiteSpace(text))
-                return true;
-
-            string trimmed = text.Trim();
-            bool hex = false;
-            if (trimmed.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
-            {
-                trimmed = trimmed.Substring(2);
-                hex = true;
-            }
-            else if (trimmed.EndsWith("h", StringComparison.OrdinalIgnoreCase))
-            {
-                trimmed = trimmed.Substring(0, trimmed.Length - 1);
-                hex = true;
-            }
-
-            bool ok = hex
-                ? int.TryParse(trimmed, System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture, out int value)
-                : int.TryParse(trimmed, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out value);
-
-            if (!ok || value < 0 || value > 127)
-                return false;
-
-            nodeId = (byte)value;
-            return true;
         }
 
         private void BtnBrowseLog_Click(object sender, RoutedEventArgs e)
@@ -316,9 +275,9 @@ namespace CanTraceConverter
             }
 
             DialogResult = true;
-            AppLog.Info("Session setup accepted: title='{0}', device={1}, channel={2}, baud={3}, listenOnly={4}, sdoClientNode={5}.",
+            AppLog.Info("Session setup accepted: title='{0}', device={1}, channel={2}, baud={3}, listenOnly={4}, logging={5}.",
                 SessionConfig.Title, SessionConfig.DeviceNumber, SessionConfig.Channel,
-                SessionConfig.BaudRateKbps, SessionConfig.ListenOnly, SessionConfig.SdoClientNodeId);
+                SessionConfig.BaudRateKbps, SessionConfig.ListenOnly, SessionConfig.LoggingEnabled);
             Close();
         }
 

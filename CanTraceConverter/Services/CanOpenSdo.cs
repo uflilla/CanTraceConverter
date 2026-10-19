@@ -34,7 +34,8 @@ namespace CanTraceConverter.Services
         public const int ExtendedClientToServerFunctionCode = 0x0B;
         public const int ExtendedServerToClientFunctionCode = 0x0C;
 
-        /// <param name="standardClientNodeId">Client node for 11-bit SDOs, whose COB-ID only names the server.</param>
+        /// <param name="standardClientNodeId">Client node recorded for 11-bit SDOs, whose COB-ID only
+        /// names the server (0 = unknown). It labels frames; it never filters them.</param>
         public static bool TryResolve(uint canId, bool isExtended, bool isRtr, byte standardClientNodeId, out SdoAddress address)
         {
             address = default;
@@ -152,6 +153,39 @@ namespace CanTraceConverter.Services
     }
 
     /// <summary>
+    /// One SDO frame as captured, before decoding. A whole trace reassembled in memory keeps
+    /// these instead of <see cref="SdoFrame"/>s: a long trace holds millions of SDO frames, and
+    /// decoded ones (each with its own command text) ran the 32-bit process out of memory.
+    /// </summary>
+    internal readonly struct SdoRawFrame
+    {
+        private const byte FlagExtended = 1;
+        private const byte FlagTx = 2;
+
+        private readonly double _timestampMs;
+        private readonly long _wallTicks;
+        private readonly ulong _data;
+        private readonly uint _cobId;
+        private readonly byte _dlc;
+        private readonly byte _flags;
+
+        public SdoRawFrame(SdoFrame f)
+        {
+            _timestampMs = f.TimestampMs;
+            _wallTicks = f.WallTime?.Ticks ?? 0;
+            _data = BitConverter.ToUInt64(f.Data, 0);
+            _cobId = f.CobId;
+            _dlc = f.Dlc;
+            _flags = (byte)((f.IsExtendedId ? FlagExtended : 0) | (f.BusDirection == "TX" ? FlagTx : 0));
+        }
+
+        public SdoFrame Decode(SdoTracker tracker, List<SdoTransfer> completed) =>
+            tracker.Process(_cobId, (_flags & FlagExtended) != 0, false, _dlc, BitConverter.GetBytes(_data),
+                (_flags & FlagTx) != 0 ? "TX" : "RX", _timestampMs, 0,
+                _wallTicks != 0 ? new DateTime(_wallTicks) : (DateTime?)null, completed);
+    }
+
+    /// <summary>
     /// One complete SDO transfer — the large packet a sender split into SDO frames,
     /// reassembled with who sent it to whom and when.
     /// </summary>
@@ -192,6 +226,10 @@ namespace CanTraceConverter.Services
         public List<SdoFrame> Frames { get; } = new List<SdoFrame>();
         public IReadOnlyList<string> Issues => _issues;
 
+        /// <summary>Undecoded frames, kept instead of <see cref="Frames"/> by a tracker that
+        /// does not retain decoded frames; see <see cref="SdoTracker.DecodeFrames"/>.</summary>
+        internal List<SdoRawFrame> RawFrames { get; set; }
+
         /// <summary>All payload bytes arrived (last segment / expedited data seen).</summary>
         internal bool DataComplete { get; set; }
 
@@ -204,7 +242,7 @@ namespace CanTraceConverter.Services
 
         /// <summary>Row id in sdo_transfers, or 0 when reassembled in memory.</summary>
         public long DatabaseId => DbId;
-        public int FrameCount => Frames.Count > 0 ? Frames.Count : StoredFrameCount;
+        public int FrameCount => Frames.Count > 0 ? Frames.Count : RawFrames?.Count ?? StoredFrameCount;
 
         public byte[] Payload => PayloadBuffer.ToArray();
         public int PayloadSize => PayloadBuffer.Count;
@@ -228,7 +266,7 @@ namespace CanTraceConverter.Services
         }
 
         public string StartTimeDisplay => CanMessageHelper.FormatTime(StartTimeMs);
-        public string DurationDisplay => DurationMs.ToString("F1");
+        public string DurationDisplay => CanMessageHelper.FormatTime(DurationMs);
         public string SenderDisplay => NodeDisplay(SenderNodeId, Scheme, TransferType != "Upload");
         public string ReceiverDisplay => NodeDisplay(ReceiverNodeId, Scheme, TransferType == "Upload");
         public string RouteDisplay => $"{SenderDisplay} → {ReceiverDisplay}";
@@ -293,8 +331,14 @@ namespace CanTraceConverter.Services
                 _issues.Add("further issues omitted");
         }
 
-        internal static string NodeDisplay(byte node, SdoAddressingScheme scheme, bool isClient) =>
-            scheme == SdoAddressingScheme.Standard && isClient ? $"{node} (client)" : node.ToString();
+        /// <summary>An 11-bit SDO ID does not name its client; older session databases may
+        /// still carry a client node that used to be configured per session.</summary>
+        internal static string NodeDisplay(byte node, SdoAddressingScheme scheme, bool isClient)
+        {
+            if (scheme != SdoAddressingScheme.Standard || !isClient)
+                return node.ToString();
+            return node == 0 ? "client" : $"{node} (client)";
+        }
     }
 
     /// <summary>
@@ -315,11 +359,15 @@ namespace CanTraceConverter.Services
 
         private readonly Dictionary<ChannelKey, Channel> _channels = new Dictionary<ChannelKey, Channel>();
         private readonly double _timeoutMs;
+        private readonly bool _retainFrames;
 
-        public SdoTracker(byte standardClientNodeId, double timeoutMs = DefaultTimeoutMs)
+        /// <param name="retainFrames">False keeps each transfer's frames undecoded, for
+        /// reassembling a whole trace in memory; <see cref="DecodeFrames"/> decodes them on demand.</param>
+        public SdoTracker(byte standardClientNodeId, double timeoutMs = DefaultTimeoutMs, bool retainFrames = true)
         {
             StandardClientNodeId = standardClientNodeId;
             _timeoutMs = timeoutMs;
+            _retainFrames = retainFrames;
         }
 
         public byte StandardClientNodeId { get; }
@@ -358,6 +406,7 @@ namespace CanTraceConverter.Services
 
         private sealed class Channel
         {
+            public bool RetainFrames;
             public BlockPhase Phase;
             public bool LastSegmentSeen;
             public SdoTransfer Active;
@@ -440,7 +489,7 @@ namespace CanTraceConverter.Services
             var key = new ChannelKey(address);
             if (!_channels.TryGetValue(key, out var channel))
             {
-                channel = new Channel();
+                channel = new Channel { RetainFrames = _retainFrames };
                 _channels[key] = channel;
             }
 
@@ -466,23 +515,63 @@ namespace CanTraceConverter.Services
             return frame;
         }
 
-        /// <summary>Reassembles every SDO transfer in a captured message list, in start order.</summary>
+        public SdoFrame Process(Models.CanMessage msg, List<SdoTransfer> completed)
+        {
+            if (msg == null)
+                return null;
+
+            byte.TryParse(msg.Dlc, out byte dlc);
+            return Process(msg.CanIdValue, msg.IsExtended, msg.IsRtr, dlc, msg.DataBytes,
+                msg.Direction, msg.TimeValue, 0, msg.WallTime, completed);
+        }
+
+        /// <summary>
+        /// Reassembles every SDO transfer in a captured message list, in start order. Frames
+        /// are kept undecoded (<see cref="DecodeFrames"/>), so the messages may be streamed.
+        /// </summary>
         public static List<SdoTransfer> Reassemble(IEnumerable<Models.CanMessage> messages, byte standardClientNodeId)
         {
-            var tracker = new SdoTracker(standardClientNodeId);
+            var tracker = new SdoTracker(standardClientNodeId, retainFrames: false);
             var transfers = new List<SdoTransfer>();
             if (messages != null)
             {
                 foreach (var msg in messages)
-                {
-                    byte.TryParse(msg.Dlc, out byte dlc);
-                    tracker.Process(msg.CanIdValue, msg.IsExtended, msg.IsRtr, dlc, msg.DataBytes,
-                        msg.Direction, msg.TimeValue, 0, msg.WallTime, transfers);
-                }
+                    tracker.Process(msg, transfers);
             }
-            tracker.FlushOpenTransfers(transfers);
-            transfers.Sort((a, b) => a.StartTimeMs.CompareTo(b.StartTimeMs));
+            tracker.FinishReassembly(transfers);
             return transfers;
+        }
+
+        /// <summary>Ends a reassembly: closes open transfers and sorts all by start time.</summary>
+        public void FinishReassembly(List<SdoTransfer> transfers)
+        {
+            FlushOpenTransfers(transfers);
+            transfers.Sort((a, b) => a.StartTimeMs.CompareTo(b.StartTimeMs));
+        }
+
+        /// <summary>
+        /// The decoded frames of a transfer. Ones kept undecoded are decoded afresh — a channel's
+        /// decoding depends only on that channel's frames, and the transfer holds all of them.
+        /// </summary>
+        public static IReadOnlyList<SdoFrame> DecodeFrames(SdoTransfer transfer)
+        {
+            var raw = transfer?.RawFrames;
+            if (raw == null)
+                return transfer?.Frames ?? new List<SdoFrame>();
+
+            byte standardClient = transfer.Scheme == SdoAddressingScheme.Standard ? transfer.ClientNodeId : (byte)0;
+            var tracker = new SdoTracker(standardClient);
+            var frames = new List<SdoFrame>(raw.Count);
+            var unused = new List<SdoTransfer>();
+            foreach (var r in raw)
+            {
+                var f = r.Decode(tracker, unused);
+                if (f == null)
+                    continue;
+                f.Transfer = transfer;
+                frames.Add(f);
+            }
+            return frames;
         }
 
         /// <summary>Closes every open transfer, e.g. when the capture ends.</summary>
@@ -894,8 +983,16 @@ namespace CanTraceConverter.Services
                 ch.PendingAbort = null;
             }
 
-            t.Frames.Add(f);
-            f.Transfer = t;
+            if (ch.RetainFrames)
+            {
+                t.Frames.Add(f);
+                f.Transfer = t;
+            }
+            else
+            {
+                (t.RawFrames ??= new List<SdoRawFrame>()).Add(new SdoRawFrame(f));
+            }
+
             if (f.TimestampMs >= t.EndTimeMs)
             {
                 t.EndTimeMs = f.TimestampMs;
@@ -1069,6 +1166,8 @@ namespace CanTraceConverter.Services
                 t.AddIssue($"toggle bit did not alternate {ch.ToggleErrors} time(s): segments lost or repeated");
 
             t.Status = status;
+            t.RawFrames?.TrimExcess();
+            t.PayloadBuffer.TrimExcess();
             completed?.Add(t);
             ch.ResetTransferState();
         }

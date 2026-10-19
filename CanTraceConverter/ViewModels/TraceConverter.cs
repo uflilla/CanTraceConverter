@@ -61,27 +61,24 @@ namespace CanTraceConverter.ViewModels
 
                 RaiseStatus("Reading binary trace file...");
 
-                using var reader = new UcanTraceBinaryReader(File.OpenRead(inputPath));
-
                 // ── Read header ────────────────────────────────────────
-                uint signature = reader.ReadUInt32();
-                if (signature != 0x5543414E)
+                UcanTraceFile trace;
+                try
                 {
-                    RaiseStatus("Invalid binary trace file (wrong signature).");
+                    trace = UcanTraceFile.Open(inputPath);
+                }
+                catch (InvalidDataException ex)
+                {
+                    RaiseStatus(ex.Message);
                     return (string.Empty, 0, 0x1002, string.Empty);
                 }
 
-                uint offset = reader.ReadUInt32();
-                uint version = reader.ReadUInt32();
-                var sysTime = reader.ReadSystemTime();
-                var osVer = reader.ReadOsVersion();
-                var hwInfo = reader.ReadUcanHwInfo();
-                var ch0 = reader.ReadUcanChannelInfo();
-                var ch1 = reader.ReadUcanChannelInfo();
+                using var traceScope = trace;
+                var hwInfo = trace.HardwareInfo;
+                var activeChannel = trace.ActiveChannel;
 
-                var activeChannel = ch0.m_fCanIsInit ? ch0 : ch1;
-
-                headerText = BuildHeader(inputPath, version, sysTime, osVer, hwInfo, ch0, ch1);
+                headerText = BuildHeader(inputPath, trace.Version, trace.SystemTime, trace.OsVersion,
+                    hwInfo, trace.Channel0, trace.Channel1);
 
                 // Append header to output
                 sb.AppendLine(headerText);
@@ -95,34 +92,26 @@ namespace CanTraceConverter.ViewModels
                 var progressClock = System.Diagnostics.Stopwatch.StartNew();
                 long nextProgressMs = 0;
 
-                while (true)
+                while (trace.TryReadMessage(out var msg))
                 {
-                    try
+                    count++;
+
+                    var displayMsg = msg;
+                    if (useDifferentialTime && count > 1)
                     {
-                        var msg = reader.ReadUcanMessage();
-                        count++;
-
-                        var displayMsg = msg;
-                        if (useDifferentialTime && count > 1)
-                        {
-                            displayMsg.m_dwTime -= prevMsg.m_dwTime;
-                        }
-                        prevMsg = msg; // Store original message for next calculation
-
-                        string line = string.Format(formatter, "{0}", displayMsg);
-                        sb.AppendLine(line);
-
-                        // Report progress on a time budget rather than a message count, so a
-                        // large trace does not pay a marshalling round-trip every 500 rows.
-                        if (progressClock.ElapsedMilliseconds >= nextProgressMs)
-                        {
-                            nextProgressMs = progressClock.ElapsedMilliseconds + 250;
-                            RaiseProgress(count);
-                        }
+                        displayMsg.m_dwTime -= prevMsg.m_dwTime;
                     }
-                    catch (EndOfStreamException)
+                    prevMsg = msg; // Store original message for next calculation
+
+                    string line = string.Format(formatter, "{0}", displayMsg);
+                    sb.AppendLine(line);
+
+                    // Report progress on a time budget rather than a message count, so a
+                    // large trace does not pay a marshalling round-trip every 500 rows.
+                    if (progressClock.ElapsedMilliseconds >= nextProgressMs)
                     {
-                        break;
+                        nextProgressMs = progressClock.ElapsedMilliseconds + 250;
+                        RaiseProgress(count);
                     }
                 }
 

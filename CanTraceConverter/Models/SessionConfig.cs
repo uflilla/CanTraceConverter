@@ -14,11 +14,9 @@ namespace CanTraceConverter.Models
         public bool ListenOnly { get; set; }
         public string LogDirectory { get; set; }
 
-        /// <summary>
-        /// CANopen node ID of the SDO client (usually the master). An SDO COB-ID only names the
-        /// server node, so this is recorded as the sender of requests and receiver of responses.
-        /// </summary>
-        public byte SdoClientNodeId { get; set; }
+        /// <summary>Whether messages are logged to the session database from the start.
+        /// Logging can still be started or paused from the monitor window.</summary>
+        public bool LoggingEnabled { get; set; } = true;
 
         public string BuildDatabasePath()
         {

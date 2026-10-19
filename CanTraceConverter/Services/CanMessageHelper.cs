@@ -62,7 +62,15 @@ namespace CanTraceConverter.Services
             };
         }
 
-        public static string FormatTime(double timestampMs)
+        /// <summary>A time or period for display, rounded to the nearest millisecond.</summary>
+        public static string FormatTime(double timestampMs) =>
+            $"{Math.Round(timestampMs, MidpointRounding.AwayFromZero):F0}";
+
+        /// <summary>
+        /// A time for an exported trace line: keeps the 0.1 ms resolution of a G4
+        /// high-resolution timer, so an export loses nothing the database holds.
+        /// </summary>
+        public static string FormatTraceTime(double timestampMs)
         {
             if (Math.Abs(timestampMs - Math.Round(timestampMs)) > 0.01)
                 return $"{timestampMs:F1}";
@@ -142,7 +150,6 @@ namespace CanTraceConverter.Services
             sb.AppendLine($"Device:    {config.DeviceNumber}  Channel: {config.Channel}");
             sb.AppendLine($"Baudrate:  {config.BaudRateKbps} kBit/s");
             sb.AppendLine($"Mode:      {(config.ListenOnly ? "Listen-only" : "Normal")}");
-            sb.AppendLine($"SDO client node ID: {config.SdoClientNodeId}");
             sb.AppendLine($"Hardware:  {string.Format(new Helpers.UcanHwInfoFormatProvider(), "{0}", hw)}");
             sb.AppendLine($"Channel:   {string.Format(new Helpers.UcanChannelInfoFormatProvider(), "{0}", ch)}");
             sb.AppendLine($"Started:   {DateTime.Now:yyyy-MM-dd HH:mm:ss}");
@@ -195,7 +202,7 @@ namespace CanTraceConverter.Services
 
         public string ToRawLine()
         {
-            string time = CanMessageHelper.FormatTime(TimestampMs);
+            string time = CanMessageHelper.FormatTraceTime(TimestampMs);
             return $"{Direction}: {time}  {CanIdDisplay} ({Dlc}) {DataDisplay}";
         }
     }

@@ -100,6 +100,7 @@
     <Compile Include="Helpers\UcanHwInfoFormatProvider.cs" />
     <Compile Include="Helpers\UcanMsgFormatProvider.cs" />
     <Compile Include="Helpers\UcanTraceBinaryReader.cs" />
+    <Compile Include="Helpers\UcanTraceFile.cs" />
     <Compile Include="Helpers\VersionFormatProvider.cs" />
     <Compile Include="Models\CanTransmitRow.cs" />
     <Compile Include="Models\CanMessage.cs" />

@@ -28,7 +28,7 @@ namespace CanTraceConverter.Models
         public string LastTime { get; set; }
         public double AvgIntervalMs { get; set; }
 
-        public string AvgIntervalDisplay => AvgIntervalMs > 0 ? $"{AvgIntervalMs:F2} ms" : "—";
+        public string AvgIntervalDisplay => AvgIntervalMs > 0 ? $"{Services.CanMessageHelper.FormatTime(AvgIntervalMs)} ms" : "—";
     }
 
     public class CanIdListItem
@@ -62,9 +62,9 @@ namespace CanTraceConverter.Models
         public double JitterMs { get; set; }
         public double EstimatedHz { get; set; }
 
-        public string MinGapDisplay => $"{MinGapMs:F2} ms";
-        public string MaxGapDisplay => $"{MaxGapMs:F2} ms";
-        public string AvgGapDisplay => $"{AvgGapMs:F2} ms";
+        public string MinGapDisplay => $"{Services.CanMessageHelper.FormatTime(MinGapMs)} ms";
+        public string MaxGapDisplay => $"{Services.CanMessageHelper.FormatTime(MaxGapMs)} ms";
+        public string AvgGapDisplay => $"{Services.CanMessageHelper.FormatTime(AvgGapMs)} ms";
         public string JitterDisplay => $"{JitterMs:F2} ms";
         public string EstHzDisplay => EstimatedHz > 0 ? $"{EstimatedHz:F2} Hz" : "—";
     }

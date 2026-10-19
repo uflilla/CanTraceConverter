@@ -31,6 +31,9 @@ namespace CanTraceConverter
         private volatile bool _dirty;
         private volatile bool _isClosing;
         private volatile bool _loggingEnabled;
+
+        /// <summary>The user wants logging on; it runs while connected (<see cref="_loggingEnabled"/>).</summary>
+        private bool _loggingRequested;
         private bool _teardownComplete;
         private CanBusStatus _busStatus = CanBusStatus.Ok;
         private SdoPacketWindow _sdoPacketWindow;
@@ -38,6 +41,7 @@ namespace CanTraceConverter
         public MonitorWindow(SessionConfig config)
         {
             _config = config ?? throw new ArgumentNullException(nameof(config));
+            _loggingRequested = config.LoggingEnabled;
             InitializeComponent();
 
             dgLive.ItemsSource = _liveCollection;
@@ -45,6 +49,7 @@ namespace CanTraceConverter
             _transmitRows.CollectionChanged += TransmitRows_CollectionChanged;
             _transmitManager.AttachBus(_bus);
             UpdateSendPanelState();
+            UpdateLoggingState();
 
             Title = $"CAN Monitor — {config.Title}";
             txtSessionTitle.Text = config.Title;
@@ -168,14 +173,12 @@ namespace CanTraceConverter
                 // The channel was (re)opened, so its timestamp base restarted.
                 ResetLivePeriodStatistics(resetCounts: false);
 
-                var header = CanMessageHelper.BuildSessionHeader(
-                    _config, _bus.HardwareInfo, _bus.ChannelInfo);
-                _repository.Open(_config, header);
-                _loggingEnabled = true;
+                if (_loggingRequested)
+                    OpenLog();
+                _loggingEnabled = _loggingRequested;
 
-                txtConnectionStatus.Text = "Connected — logging";
                 txtConnectionStatus.Foreground = System.Windows.Media.Brushes.Green;
-                txtLogPath.Text = Path.GetFileName(_repository.DatabasePath);
+                UpdateLoggingState();
                 btnReconnect.Visibility = Visibility.Collapsed;
                 _busStatus = CanBusStatus.Ok;
                 txtBusError.Text = string.Empty;
@@ -187,6 +190,60 @@ namespace CanTraceConverter
                 AppLog.Error(ex, "Monitor session start failed.");
                 ShowConnectionFailed(ex.Message);
             }
+        }
+
+        /// <summary>
+        /// Creates the session database the first time logging runs, so a session that never
+        /// logs leaves no file behind. Needs a connection: the header records the hardware.
+        /// </summary>
+        private void OpenLog()
+        {
+            if (_repository.IsOpen)
+                return;
+
+            var header = CanMessageHelper.BuildSessionHeader(
+                _config, _bus.HardwareInfo, _bus.ChannelInfo);
+            _repository.Open(_config, header);
+        }
+
+        private void UpdateLoggingState()
+        {
+            btnLogging.Content = _loggingRequested ? "Pause Logging" : "Start Logging";
+            txtLogPath.Text = _repository.IsOpen
+                ? Path.GetFileName(_repository.DatabasePath) + (_loggingEnabled ? string.Empty : " (paused)")
+                : "Logging off — no session database yet";
+
+            if (_bus.IsConnected)
+                txtConnectionStatus.Text = _loggingEnabled ? "Connected — logging" : "Connected — not logging";
+        }
+
+        private void BtnLogging_Click(object sender, RoutedEventArgs e)
+        {
+            bool start = !_loggingRequested;
+            if (start && _bus.IsConnected)
+            {
+                try
+                {
+                    OpenLog();
+                }
+                catch (Exception ex)
+                {
+                    AppLog.Error(ex, "Could not open the session database.");
+                    MessageBox.Show($"Could not start logging:\n{ex.Message}", "Logging",
+                        MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+            }
+
+            _loggingRequested = start;
+            _loggingEnabled = start && _bus.IsConnected;
+            UpdateLoggingState();
+            txtStatus.Text = !start
+                ? "Logging paused — messages are still shown but not saved."
+                : _loggingEnabled
+                    ? "Logging started."
+                    : "Logging will start when the CAN bus is connected.";
+            AppLog.Info("Session logging {0}.", start ? "started" : "paused");
         }
 
         private void ShowConnectionFailed(string message)
@@ -287,7 +344,7 @@ namespace CanTraceConverter
             double avgMs = (timestampMs - row.PeriodStartMs) / row.PeriodSamples;
 
             row.PeriodDisplay = CanMessageHelper.FormatTime(periodMs);
-            row.AvgPeriodDisplay = avgMs.ToString("F2");
+            row.AvgPeriodDisplay = CanMessageHelper.FormatTime(avgMs);
             row.MinPeriodDisplay = CanMessageHelper.FormatTime(row.MinPeriodMs);
             row.MaxPeriodDisplay = CanMessageHelper.FormatTime(row.MaxPeriodMs);
         }
@@ -607,7 +664,7 @@ namespace CanTraceConverter
         {
             if (!_repository.IsOpen)
             {
-                MessageBox.Show("No session data is available yet. Connect to the CAN bus first.",
+                MessageBox.Show("No session data is available yet. Connect to the CAN bus with logging on first.",
                     "No Data", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
@@ -630,7 +687,7 @@ namespace CanTraceConverter
         {
             if (!_repository.IsOpen)
             {
-                MessageBox.Show("No session data is available yet. Connect to the CAN bus first.",
+                MessageBox.Show("No session data is available yet. Connect to the CAN bus with logging on first.",
                     "No Data", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
@@ -651,7 +708,7 @@ namespace CanTraceConverter
         {
             if (!_repository.IsOpen)
             {
-                MessageBox.Show("No session data is available yet. Connect to the CAN bus first.",
+                MessageBox.Show("No session data is available yet. Connect to the CAN bus with logging on first.",
                     "No Data", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
