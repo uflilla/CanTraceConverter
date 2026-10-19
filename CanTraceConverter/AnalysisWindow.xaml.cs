@@ -212,11 +212,20 @@ namespace CanTraceConverter
             var criteria = BuildFilterCriteria();
             bool unfiltered = IsUnfiltered(criteria);
 
+            var idCriteria = criteria.WithoutCanId();
+            bool idListUnfiltered = IsUnfiltered(idCriteria);
+
             var (filtered, idList, stats) = await Task.Run(() =>
             {
                 // No filter keeps the full list rather than copying it.
                 var f = unfiltered ? all : CanTraceAnalyzer.ApplyFilters(all, criteria);
-                return (f, CanTraceAnalyzer.BuildCanIdList(f), CanTraceAnalyzer.ComputeStatistics(all, f));
+
+                // The ID list ignores the CAN ID filter, so after picking one ID the others are
+                // still there to pick; filtered by it, the list shrank to the one ID chosen.
+                var idSource = string.IsNullOrWhiteSpace(criteria.CanIdContains) ? f
+                    : idListUnfiltered ? all
+                    : CanTraceAnalyzer.ApplyFilters(all, idCriteria);
+                return (f, CanTraceAnalyzer.BuildCanIdList(idSource), CanTraceAnalyzer.ComputeStatistics(all, f));
             });
 
             if (_closed || version != _filterVersion || !ReferenceEquals(all, _allMessages))
@@ -224,7 +233,7 @@ namespace CanTraceConverter
 
             _filteredMessages = filtered;
             if (lstUniqueIds != null)
-                lstUniqueIds.ItemsSource = idList;
+                ShowCanIdList(idList, criteria.CanIdContains);
             if (txtStatistics != null)
                 txtStatistics.Text = stats.ToDisplayText();
             UpdateMessageCount();
@@ -345,18 +354,65 @@ namespace CanTraceConverter
             txtCanIdFilter.Clear();
         }
 
+        /// <summary>A click picks the ID, as the list's label says; it used to need a double-click.</summary>
         private void lstUniqueIds_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            // Single-click highlights only; double-click applies filter.
+            if (_suppressFilterEvents || _isLoading)
+                return;
+
+            if (lstUniqueIds.SelectedItem is CanIdListItem item)
+                FilterToCanId(item);
         }
 
         private void lstUniqueIds_MouseDoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
         {
             if (lstUniqueIds.SelectedItem is CanIdListItem item)
+                FilterToCanId(item);
+        }
+
+        private void FilterToCanId(CanIdListItem item)
+        {
+            if (string.Equals(txtCanIdFilter.Text?.Trim(), item.CanId, StringComparison.OrdinalIgnoreCase))
+                return;
+
+            // Applied once, here; the text box's own change event would queue a second pass.
+            bool suppressed = _suppressFilterEvents;
+            _suppressFilterEvents = true;
+            try
             {
                 txtCanIdFilter.Text = item.CanId;
-                txtStatus.Text = $"Filtered to CAN ID {item.CanId}";
-                RunAsync(() => ApplyFiltersAsync());
+            }
+            finally
+            {
+                _suppressFilterEvents = suppressed;
+            }
+            _filterTimer.Stop();
+
+            txtStatus.Text = $"Filtering to CAN ID {item.CanId}…";
+            RunAsync(async () =>
+            {
+                if (await ApplyFiltersAsync() && !_closed)
+                    txtStatus.Text = $"Filtered to CAN ID {item.CanId}: {_filteredMessages.Count:N0} messages";
+            });
+        }
+
+        /// <summary>Shows the ID list with the filtered ID, if any, selected.</summary>
+        private void ShowCanIdList(List<CanIdListItem> idList, string canIdFilter)
+        {
+            bool suppressed = _suppressFilterEvents;
+            _suppressFilterEvents = true;
+            try
+            {
+                lstUniqueIds.ItemsSource = idList;
+                var current = string.IsNullOrWhiteSpace(canIdFilter) ? null
+                    : idList.FirstOrDefault(i => string.Equals(i.CanId, canIdFilter.Trim(), StringComparison.OrdinalIgnoreCase));
+                lstUniqueIds.SelectedItem = current;
+                if (current != null)
+                    lstUniqueIds.ScrollIntoView(current);
+            }
+            finally
+            {
+                _suppressFilterEvents = suppressed;
             }
         }
 

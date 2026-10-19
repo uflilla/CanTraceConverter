@@ -21,6 +21,14 @@ namespace CanTraceConverter.Services
         public string FunctionCodeHex { get; set; }
         public bool? ExtendedOnly { get; set; }
         public bool HideRtr { get; set; }
+
+        /// <summary>These criteria with no CAN ID filter.</summary>
+        public CanTraceFilterCriteria WithoutCanId()
+        {
+            var copy = (CanTraceFilterCriteria)MemberwiseClone();
+            copy.CanIdContains = null;
+            return copy;
+        }
     }
 
     public sealed class CanTraceStatistics
@@ -86,10 +94,19 @@ namespace CanTraceConverter.Services
 
             if (!string.IsNullOrWhiteSpace(criteria.CanIdContains))
             {
-                var idFilter = criteria.CanIdContains.Trim().ToUpperInvariant().Replace("H", string.Empty);
-                filtered = filtered.Where(m =>
-                    (m.CanId ?? string.Empty).ToUpperInvariant().Replace("H", string.Empty).Contains(idFilter) ||
-                    m.CanIdValue.ToString("X").Contains(idFilter));
+                // A whole ID ending in "h", as the unique ID list gives it, is matched exactly:
+                // "100h" must not also pick 09020100h. Bare digits match any ID containing them.
+                if (TryParseExactCanId(criteria.CanIdContains, out uint exactId, out bool exactExtended))
+                {
+                    filtered = filtered.Where(m => m.CanIdValue == exactId && m.IsExtended == exactExtended);
+                }
+                else
+                {
+                    var idFilter = criteria.CanIdContains.Trim().ToUpperInvariant().Replace("H", string.Empty);
+                    filtered = filtered.Where(m =>
+                        (m.CanId ?? string.Empty).ToUpperInvariant().Replace("H", string.Empty).Contains(idFilter) ||
+                        m.CanIdValue.ToString("X").Contains(idFilter));
+                }
             }
 
             if (!string.IsNullOrWhiteSpace(criteria.Dlc) && criteria.Dlc != "All")
@@ -109,8 +126,9 @@ namespace CanTraceConverter.Services
 
             if (!string.IsNullOrWhiteSpace(criteria.SourceIdContains))
             {
-                var sourceId = criteria.SourceIdContains.Trim().ToUpperInvariant();
-                filtered = filtered.Where(m => ExtractSourceId(m.CanId).Contains(sourceId));
+                // An unreadable node matches nothing rather than everything.
+                bool valid = TryParseHexByte(criteria.SourceIdContains, out byte node);
+                filtered = filtered.Where(m => valid && SourceNodeId(m) == node);
             }
 
             if (!string.IsNullOrWhiteSpace(criteria.FunctionCodeHex))
@@ -375,12 +393,42 @@ namespace CanTraceConverter.Services
             return sum / (ordered.Count - 1);
         }
 
-        private static string ExtractSourceId(string canId)
+        /// <summary>
+        /// The node that sent a frame. In the 29-bit layout (see <see cref="SdoAddressing"/>) that is
+        /// bits 23..16 — function code 28..24, sender 23..16, SDO number 15..8, receiver 7..0 —
+        /// e.g. 02 in the SDO response 0C020E0Eh. An 11-bit CANopen ID carries its node in bits 6..0.
+        /// </summary>
+        /// <remarks>This used to take bits 15..8, the SDO number: on this network that equals the
+        /// client node, so it gave the sender of requests but the receiver of responses.</remarks>
+        public static byte SourceNodeId(CanMessage m) =>
+            m.IsExtended ? (byte)(m.CanIdValue >> 16) : (byte)(m.CanIdValue & 0x7F);
+
+        /// <summary>A node as hex: "2", "02", "02h" or "0x02".</summary>
+        private static bool TryParseHexByte(string text, out byte value)
         {
-            if (string.IsNullOrWhiteSpace(canId))
-                return string.Empty;
-            var hex = canId.Trim().TrimEnd('h', 'H');
-            return hex.Length >= 4 ? hex.Substring(Math.Max(0, hex.Length - 4), Math.Min(2, hex.Length)) : hex;
+            var hex = text.Trim().TrimEnd('h', 'H');
+            if (hex.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+                hex = hex.Substring(2);
+            return byte.TryParse(hex, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out value);
+        }
+
+        /// <summary>A whole CAN ID written as displayed, e.g. 0E0C0000h or 581h.</summary>
+        private static bool TryParseExactCanId(string text, out uint id, out bool isExtended)
+        {
+            id = 0;
+            isExtended = false;
+            var trimmed = text.Trim();
+            if (!trimmed.EndsWith("h", StringComparison.OrdinalIgnoreCase))
+                return false;
+
+            var hex = trimmed.Substring(0, trimmed.Length - 1);
+            if (hex.Length == 0 || hex.Length > 8 ||
+                !uint.TryParse(hex, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out id))
+                return false;
+
+            // As the trace shows them: 8 digits for a 29-bit ID, 3 for an 11-bit one.
+            isExtended = hex.Length > 3 || id > 0x7FF;
+            return true;
         }
 
         private static bool TryParseDouble(string text, out double value)

@@ -98,7 +98,7 @@
               <TextBox x:Name="txtCanIdFilter" Grid.Column="0"
                        Style="{StaticResource ModernTextBox}"
                        TextChanged="OnFilterChanged"
-                       ToolTip="Enter CAN ID in hex (e.g., 321 or 0E0C0000)" />
+                       ToolTip="CAN ID in hex. Ending in h matches that ID exactly (e.g. 0E0C0000h or 321h); bare digits match any ID containing them (e.g. 0E0C)" />
               <Button x:Name="btnClearCanId" Grid.Column="1" Margin="4,0,0,0"
                       Padding="8,6" Click="btnClearCanId_Click"
                       Content="✕" Style="{StaticResource SecondaryButton}" />
@@ -147,7 +147,7 @@
                        Foreground="{DynamicResource ThemeTextSecondaryBrush}" Text="Source/Node ID (from CAN ID):" />
             <TextBox x:Name="txtSourceIdFilter" Style="{StaticResource ModernTextBox}"
                      TextChanged="OnFilterChanged"
-                     ToolTip="Filter by source/node ID extracted from CAN ID" />
+                     ToolTip="Sending node in hex (e.g. 02). 29-bit IDs: bits 23..16 (02 in 0C020E0Eh). 11-bit IDs: the CANopen node, bits 6..0" />
 
             <TextBlock Margin="0,12,0,4" FontWeight="Medium"
                        Foreground="{DynamicResource ThemeTextSecondaryBrush}" Text="Function Code (from data byte):" />
