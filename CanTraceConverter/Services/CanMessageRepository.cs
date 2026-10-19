@@ -657,8 +657,18 @@ VALUES(@start, @end, @dur, @swall, @ewall, @type, @mode, @addr, @snd, @rcv, @cli
         /// </summary>
         public void ReadMessages(double? timeFromMs, double? timeToMs, Action<CanMessage> onMessage)
         {
-            if (onMessage == null || !IsOpen || string.IsNullOrEmpty(DatabasePath))
+            if (onMessage == null)
                 return;
+
+            foreach (var record in EnumerateRecords(timeFromMs, timeToMs))
+                onMessage(CanMessageHelper.ToDisplayMessage(record));
+        }
+
+        /// <summary>Stored messages in capture order, read lazily as the caller enumerates.</summary>
+        public IEnumerable<CanMessageRecord> EnumerateRecords(double? timeFromMs = null, double? timeToMs = null)
+        {
+            if (!IsOpen || string.IsNullOrEmpty(DatabasePath))
+                yield break;
 
             // Bulk reads get their own connection so a long export never blocks the writer
             // thread — and never shares a connection with it, which is not thread-safe.
@@ -685,7 +695,7 @@ VALUES(@start, @end, @dur, @swall, @ewall, @type, @mode, @addr, @snd, @rcv, @cli
                         while (reader.Read())
                         {
                             var data = reader["data"] as byte[];
-                            var record = new CanMessageRecord
+                            yield return new CanMessageRecord
                             {
                                 Direction = reader.GetString(0),
                                 TimestampMs = reader.GetDouble(1),
@@ -696,7 +706,6 @@ VALUES(@start, @end, @dur, @swall, @ewall, @type, @mode, @addr, @snd, @rcv, @cli
                                 Dlc = (byte)reader.GetInt32(6),
                                 Data = data ?? new byte[8]
                             };
-                            onMessage(CanMessageHelper.ToDisplayMessage(record));
                         }
                     }
                 }

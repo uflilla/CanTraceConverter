@@ -33,7 +33,7 @@
       <Button Margin="0,0,0,12" MinWidth="320" Click="BtnAnalyzeDb_Click"
               Content="Analyze Trace (Database or Text)" Style="{StaticResource SecondaryButton}" />
       <Button Margin="0,0,0,12" MinWidth="320" Click="BtnSdoPackets_Click"
-              Content="SDO Packet Trace (Database or Trace)" Style="{StaticResource SecondaryButton}" />
+              Content="SDO Packet Trace (Database or Trace, one or two)" Style="{StaticResource SecondaryButton}" />
       <Button x:Name="btnTheme" Margin="0,0,0,12" MinWidth="320" Click="BtnTheme_Click"
               Content="Switch to Light Theme" Style="{StaticResource SecondaryButton}" />
     </StackPanel>

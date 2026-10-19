@@ -196,7 +196,12 @@ namespace CanTraceConverter.Services
         internal readonly List<byte> PayloadBuffer = new List<byte>();
         private readonly List<string> _issues = new List<string>();
 
-        /// <summary>Download (client → server data) or Upload (server → client data).</summary>
+        public const string AbortByClient = "Abort by client";
+        public const string AbortByServer = "Abort by server";
+
+        /// <summary>Download (client → server data), Upload (server → client data), or
+        /// <see cref="AbortByClient"/> / <see cref="AbortByServer"/> for an abort sent while no
+        /// transfer was open on its SDO channel.</summary>
         public string TransferType { get; internal set; }
 
         /// <summary>Expedited, Segmented, Block or Unknown (start not captured).</summary>
@@ -206,11 +211,14 @@ namespace CanTraceConverter.Services
         public byte ServerNodeId { get; internal set; }
         public byte SdoNumber { get; internal set; }
 
+        /// <summary>The server sends: the data of an upload, or an abort the server sent.</summary>
+        private bool ServerSends => TransferType == "Upload" || TransferType == AbortByServer;
+
         /// <summary>Node the data came from.</summary>
-        public byte SenderNodeId => TransferType == "Upload" ? ServerNodeId : ClientNodeId;
+        public byte SenderNodeId => ServerSends ? ServerNodeId : ClientNodeId;
 
         /// <summary>Node the data went to.</summary>
-        public byte ReceiverNodeId => TransferType == "Upload" ? ClientNodeId : ServerNodeId;
+        public byte ReceiverNodeId => ServerSends ? ClientNodeId : ServerNodeId;
 
         public ushort? Index { get; internal set; }
         public byte? SubIndex { get; internal set; }
@@ -267,8 +275,8 @@ namespace CanTraceConverter.Services
 
         public string StartTimeDisplay => CanMessageHelper.FormatTime(StartTimeMs);
         public string DurationDisplay => CanMessageHelper.FormatTime(DurationMs);
-        public string SenderDisplay => NodeDisplay(SenderNodeId, Scheme, TransferType != "Upload");
-        public string ReceiverDisplay => NodeDisplay(ReceiverNodeId, Scheme, TransferType == "Upload");
+        public string SenderDisplay => NodeDisplay(SenderNodeId, Scheme, !ServerSends);
+        public string ReceiverDisplay => NodeDisplay(ReceiverNodeId, Scheme, ServerSends);
         public string RouteDisplay => $"{SenderDisplay} → {ReceiverDisplay}";
         public string IndexDisplay => Index.HasValue ? $"{Index.Value:X4}h" : "?";
         public string SubIndexDisplay => SubIndex.HasValue ? $"{SubIndex.Value:X2}h" : "?";
@@ -425,6 +433,9 @@ namespace CanTraceConverter.Services
             /// <summary>An abort naming another object, seen mid-transfer: it ends this transfer
             /// only if the transfer does not continue afterwards.</summary>
             public SdoFrame PendingAbort;
+
+            /// <summary>The transfer this channel finished last, for context on a later lone abort.</summary>
+            public SdoTransfer LastFinished;
             public readonly SortedDictionary<int, byte[]> SubBlock = new SortedDictionary<int, byte[]>();
 
             public void ResetTransferState()
@@ -514,6 +525,10 @@ namespace CanTraceConverter.Services
 
             return frame;
         }
+
+        public SdoFrame Process(in CapturedFrame frame, List<SdoTransfer> completed) =>
+            Process(frame.CanId, frame.IsExtended, frame.IsRtr, frame.Dlc, frame.Data,
+                frame.Direction, frame.TimestampMs, 0, frame.WallTime, completed);
 
         public SdoFrame Process(Models.CanMessage msg, List<SdoTransfer> completed)
         {
@@ -1087,7 +1102,23 @@ namespace CanTraceConverter.Services
 
             var t = ch.Active;
             if (t == null)
+            {
+                // No transfer open on the channel, e.g. a client that times out after the server
+                // already confirmed (captures show 80 FF FF FF … 05040000h). Still a packet of its
+                // own, so every abort on the bus shows in the SDO packet view.
+                t = ch.Active = NewTransfer(f, by == "server" ? SdoTransfer.AbortByServer : SdoTransfer.AbortByClient);
+                t.Mode = "Abort only";
+                Track(ch, f);
+                t.AbortCode = f.AbortCode;
+                t.AddIssue($"aborted by {by}: {f.AbortCode.Value:X8}h {DescribeAbortCode(f.AbortCode.Value)}");
+
+                var previous = ch.LastFinished;
+                t.AddIssue(previous == null
+                    ? "no transfer open on this SDO channel"
+                    : $"no transfer open on this SDO channel; the previous one ({previous.TransferType} {previous.IndexDisplay} sub {previous.SubIndexDisplay}, {previous.Status}) ended {CanMessageHelper.FormatTime(f.TimestampMs - previous.EndTimeMs)} ms earlier");
+                Finish(ch, "Aborted", completed);
                 return;
+            }
 
             Track(ch, f);
 
@@ -1169,6 +1200,7 @@ namespace CanTraceConverter.Services
             t.RawFrames?.TrimExcess();
             t.PayloadBuffer.TrimExcess();
             completed?.Add(t);
+            ch.LastFinished = t;
             ch.ResetTransferState();
         }
 

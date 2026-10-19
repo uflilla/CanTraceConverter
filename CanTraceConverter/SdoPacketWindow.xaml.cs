@@ -11,11 +11,9 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
 using System.Windows.Threading;
-using CanTraceConverter.Helpers;
 using CanTraceConverter.Models;
 using CanTraceConverter.Services;
 using Microsoft.Win32;
-using UcanDotNET;
 
 namespace CanTraceConverter
 {
@@ -36,11 +34,17 @@ namespace CanTraceConverter
             Database,
             TextFile,
             BinaryTrace,
+
+            /// <summary>Two captures of the same adapter's channels, merged by timestamp.</summary>
+            Merged,
             Messages
         }
 
         private readonly SourceKind _kind;
         private readonly string _path;
+
+        /// <summary>The second capture of a merged source.</summary>
+        private readonly string _mergePath;
         private readonly string _label;
         private readonly IReadOnlyList<CanMessage> _messages;
         private byte _standardClientNode;
@@ -55,10 +59,12 @@ namespace CanTraceConverter
         private bool _polling;
         private bool _closed;
 
-        private SdoPacketWindow(SourceKind kind, string path, string label, IReadOnlyList<CanMessage> messages, byte standardClientNode)
+        private SdoPacketWindow(SourceKind kind, string path, string label, IReadOnlyList<CanMessage> messages,
+            byte standardClientNode, string mergePath = null)
         {
             _kind = kind;
             _path = path;
+            _mergePath = mergePath;
             _label = label;
             _messages = messages;
             _standardClientNode = standardClientNode;
@@ -83,7 +89,9 @@ namespace CanTraceConverter
             badgeLive.Visibility = live ? Visibility.Visible : Visibility.Collapsed;
             chkFollow.Visibility = live ? Visibility.Visible : Visibility.Collapsed;
             txtSource.Text = label;
-            Title = "SDO Packet Trace — " + (path != null ? Path.GetFileName(path) : label);
+            Title = "SDO Packet Trace — " + (path == null ? label
+                : mergePath == null ? Path.GetFileName(path)
+                : Path.GetFileName(path) + " + " + Path.GetFileName(mergePath));
 
             Loaded += async (_, __) => await LoadAsync();
         }
@@ -111,6 +119,16 @@ namespace CanTraceConverter
                 kind = SourceKind.TextFile;
 
             Show(owner, new SdoPacketWindow(kind, path, path, null, 0));
+        }
+
+        /// <summary>
+        /// Two captures merged by timestamp: the two channels of one adapter, as binary traces
+        /// or monitor session databases. Their clocks must be the same adapter's.
+        /// </summary>
+        public static void OpenMerged(Window owner, string firstPath, string secondPath)
+        {
+            Show(owner, new SdoPacketWindow(SourceKind.Merged, firstPath,
+                $"{firstPath}  +  {secondPath}", null, 0, secondPath));
         }
 
         /// <summary>Messages already loaded elsewhere, e.g. a trace open in the analysis window.</summary>
@@ -151,56 +169,19 @@ namespace CanTraceConverter
                         break;
 
                     case SourceKind.TextFile:
-                    {
-                        string path = _path;
-                        await ReassembleAsync((tracker, transfers) =>
-                        {
-                            long frames = 0;
-                            foreach (var line in File.ReadLines(path))
-                            {
-                                if (line.StartsWith("Total number", StringComparison.OrdinalIgnoreCase))
-                                    break;
-
-                                var msg = CanTraceTextParser.ParseMessageLine(line);
-                                if (msg == null)
-                                    continue;
-                                frames++;
-                                tracker.Process(msg, transfers);
-                            }
-                            return frames;
-                        }, "reassembled from trace text");
+                        await ReassembleAsync(CapturedFrameSource.Open(_path), "reassembled from trace text");
                         break;
-                    }
 
                     case SourceKind.BinaryTrace:
-                    {
                         // Streamed straight from the file. Converting it to text first held the
                         // whole trace in memory several times over, which a large trace did not
                         // survive in this 32-bit process.
-                        string path = _path;
-                        await ReassembleAsync((tracker, transfers) =>
-                        {
-                            long frames = 0;
-                            using (var trace = UcanTraceFile.Open(path))
-                            {
-                                double tickMs = trace.TickMs;
-                                while (trace.TryReadMessage(out var msg))
-                                {
-                                    frames++;
-                                    byte ff = msg.m_bFF;
-                                    tracker.Process(
-                                        unchecked((uint)msg.m_dwID),
-                                        (ff & (byte)USBcanServer.eUcanMsgFrameFormat.USBCAN_MSG_FF_EXT) != 0,
-                                        (ff & (byte)USBcanServer.eUcanMsgFrameFormat.USBCAN_MSG_FF_RTR) != 0,
-                                        msg.m_bDLC, msg.m_bData,
-                                        (ff & (byte)USBcanServer.eUcanMsgFrameFormat.USBCAN_MSG_FF_ECHO) != 0 ? "TX" : "RX",
-                                        unchecked((uint)msg.m_dwTime) * tickMs, 0, null, transfers);
-                                }
-                            }
-                            return frames;
-                        }, "reassembled from binary trace");
+                        await ReassembleAsync(CapturedFrameSource.Open(_path), "reassembled from binary trace");
                         break;
-                    }
+
+                    case SourceKind.Merged:
+                        await LoadMergedAsync();
+                        break;
 
                     default:
                     {
@@ -248,21 +229,77 @@ namespace CanTraceConverter
             // Recorded before packets were stored: rebuild them from the raw frames.
             byte client = await Task.Run(() => SdoPacketStore.ReadStandardClientNodeId(_path));
             _standardClientNode = client;
-            string path = _path;
-            await ReassembleAsync((tracker, transfers) =>
-            {
-                long frames = 0;
-                using (var repo = CanMessageRepository.OpenExisting(path))
-                {
-                    repo.ReadMessages(null, null, msg =>
-                    {
-                        frames++;
-                        tracker.Process(msg, transfers);
-                    });
-                }
-                return frames;
-            }, "reassembled from raw frames (database has no stored packets)");
+            await ReassembleAsync(CapturedFrameSource.Open(_path),
+                "reassembled from raw frames (database has no stored packets)");
         }
+
+        private async Task LoadMergedAsync()
+        {
+            string first = _path, second = _mergePath;
+
+            if (first.EndsWith(".ucantrc", StringComparison.OrdinalIgnoreCase) &&
+                second.EndsWith(".ucantrc", StringComparison.OrdinalIgnoreCase))
+            {
+                var (serialA, serialB) = await Task.Run(() =>
+                    (CapturedFrameSource.ReadTraceSerialNumber(first), CapturedFrameSource.ReadTraceSerialNumber(second)));
+                if (serialA != serialB &&
+                    MessageBox.Show(this,
+                        $"These traces come from different adapters (serial {serialA} and {serialB}), so their " +
+                        "timestamps are not on one clock and the merged order may be wrong.\n\nMerge anyway?",
+                        "Different adapters", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes)
+                {
+                    txtStatus.Text = "Merge cancelled.";
+                    return;
+                }
+            }
+
+            // Packets stored by a monitor session cover only its own channel, so a session
+            // database is reassembled from its raw frames here.
+            if (first.EndsWith(".db", StringComparison.OrdinalIgnoreCase))
+                _standardClientNode = await Task.Run(() => SdoPacketStore.ReadStandardClientNodeId(first));
+
+            var rangeA = new CaptureRange();
+            var rangeB = new CaptureRange();
+            await ReassembleAsync(
+                CapturedFrameSource.Merge(rangeA.Measure(CapturedFrameSource.Open(first)), rangeB.Measure(CapturedFrameSource.Open(second))),
+                "reassembled from two merged captures");
+
+            if (!_closed && rangeA.Frames > 0 && rangeB.Frames > 0 && !rangeA.Overlaps(rangeB))
+                UpdateStatus(null, "the two captures do not overlap in time — check they are channels of the same adapter, recorded together");
+        }
+
+        /// <summary>The time span of a capture, measured as it streams by.</summary>
+        private sealed class CaptureRange
+        {
+            public long Frames;
+            public double FirstMs;
+            public double LastMs;
+
+            public IEnumerable<CapturedFrame> Measure(IEnumerable<CapturedFrame> frames)
+            {
+                foreach (var f in frames)
+                {
+                    if (Frames++ == 0)
+                        FirstMs = f.TimestampMs;
+                    LastMs = f.TimestampMs;
+                    yield return f;
+                }
+            }
+
+            public bool Overlaps(CaptureRange other) => FirstMs <= other.LastMs && other.FirstMs <= LastMs;
+        }
+
+        private Task ReassembleAsync(IEnumerable<CapturedFrame> frames, string origin) =>
+            ReassembleAsync((tracker, transfers) =>
+            {
+                long count = 0;
+                foreach (var f in frames)
+                {
+                    count++;
+                    tracker.Process(f, transfers);
+                }
+                return count;
+            }, origin);
 
         /// <summary>
         /// Feeds a source through an SDO tracker on a background thread. Frames are kept

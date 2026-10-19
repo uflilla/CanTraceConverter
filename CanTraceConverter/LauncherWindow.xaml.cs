@@ -85,10 +85,26 @@ namespace CanTraceConverter
             var dlg = new OpenFileDialog
             {
                 Filter = "Session database or CAN trace|*.db;*.txt;*.ucantrc|Session database|*.db|Converted trace text|*.txt|Binary trace|*.ucantrc|All files|*.*",
-                Title = "Open trace for SDO packet tracing"
+                Title = "Open a trace — or select two (both channels of one adapter) to merge them",
+                Multiselect = true
             };
             if (dlg.ShowDialog() != true)
                 return;
+
+            var files = dlg.FileNames;
+            if (files.Length > 2)
+            {
+                MessageBox.Show("Select one trace, or two traces to merge.", "SDO Packet Trace",
+                    MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            if (files.Length == 2)
+            {
+                AppLog.Info("Opening merged SDO packet trace for '{0}' and '{1}'.", files[0], files[1]);
+                SdoPacketWindow.OpenMerged(null, files[0], files[1]);
+                return;
+            }
 
             AppLog.Info("Opening SDO packet trace for '{0}'.", dlg.FileName);
             SdoPacketWindow.OpenFile(null, dlg.FileName);
