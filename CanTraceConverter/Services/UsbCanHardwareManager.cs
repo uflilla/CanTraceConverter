@@ -312,8 +312,21 @@ namespace CanTraceConverter.Services
             if (server == null)
                 return;
 
-            try { server.Shutdown((byte)eUcanChannel.USBCAN_CHANNEL_ALL, true); } catch { /* ignore */ }
+            try { Shutdown(server, (byte)eUcanChannel.USBCAN_CHANNEL_ALL, true); } catch { /* ignore */ }
             UcanServerAccess.Dispose(server);
+        }
+
+        /// <summary>
+        /// Shuts down through <see cref="TrackedUcanServer.ShutdownIgnoringErrors"/> where possible.
+        /// Servers returned by <c>EnumerateHardware</c> are plain wrappers, but they have no
+        /// initialised channel whose error code could overflow the wrapper's own Shutdown.
+        /// </summary>
+        private static void Shutdown(USBcanServer server, byte channel, bool shutDownHardware)
+        {
+            if (server is TrackedUcanServer tracked)
+                tracked.ShutdownIgnoringErrors(channel, shutDownHardware);
+            else
+                server.Shutdown(channel, shutDownHardware);
         }
 
         /// <summary>
@@ -581,7 +594,8 @@ namespace CanTraceConverter.Services
                     try
                     {
                         // Keep the hardware open — the other channel is still in use.
-                        _server?.Shutdown(channel, false);
+                        if (_server != null)
+                            Shutdown(_server, channel, false);
                     }
                     catch (Exception ex)
                     {
@@ -625,7 +639,7 @@ namespace CanTraceConverter.Services
                             }
 
                             // Final hard close — frees the module for other applications.
-                            server.Shutdown((byte)eUcanChannel.USBCAN_CHANNEL_ALL, true);
+                            Shutdown(server, (byte)eUcanChannel.USBCAN_CHANNEL_ALL, true);
                         }
                         catch (Exception ex)
                         {
@@ -1078,6 +1092,7 @@ namespace CanTraceConverter.Services
                 _disconnectRequested = false;
 
                 bool fatal = _fatalDisconnect;
+                AppLog.Info("Device {0}: {1} event received.", DeviceNumber, fatal ? "fatal disconnect" : "disconnect");
                 if (!fatal && IsHardwareStillPresent())
                     return false;
 
@@ -1155,15 +1170,17 @@ namespace CanTraceConverter.Services
                 lock (_ioLock)
                 lock (UcanServerAccess.Lock)
                 {
-                    if (_nativeHandleReleased)
+                    if (_nativeHandleReleased || !(_server is TrackedUcanServer server))
                         return;
                     _nativeHandleReleased = true;
 
                     try
                     {
-                        int result = TrackedUcanServer.DeinitNativeHandle(_nativeHandle);
-                        AppLog.Info("Released driver handle {0} of disconnected device {1} (result 0x{2:X}).",
-                            _nativeHandle, DeviceNumber, result);
+                        // Logged before the call too: if the driver blocks here, the log shows where.
+                        AppLog.Info("Releasing driver handle {0} of disconnected device {1}.", _nativeHandle, DeviceNumber);
+                        int result = server.DeinitAbandonedHandle(_nativeHandle, out bool callbackRaised);
+                        AppLog.Info("Released driver handle {0} of disconnected device {1} (result 0x{2:X}, deinit callback {3}).",
+                            _nativeHandle, DeviceNumber, result, callbackRaised ? "raised" : "not raised");
                     }
                     catch (Exception ex)
                     {

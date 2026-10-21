@@ -1,4 +1,6 @@
 using System;
+using System.Runtime.InteropServices;
+using System.Threading;
 using UcanDotNET;
 
 namespace CanTraceConverter.Services
@@ -19,8 +21,74 @@ namespace CanTraceConverter.Services
         /// <summary>The native handle; valid only after a successful <c>InitHardware</c>.</summary>
         public byte NativeHandle => m_UcanHandle;
 
-        /// <summary>Calls the driver's UcanDeinitHardware for a handle the wrapper has abandoned.</summary>
-        public static int DeinitNativeHandle(byte handle) => UcanDeinitHardware(handle);
+        /// <summary>
+        /// Does what the wrapper's <c>Shutdown</c> does, without its error-code arithmetic.
+        /// </summary>
+        /// <remarks>
+        /// <c>Shutdown</c> adds each driver return code into a <c>Byte</c> with overflow checking.
+        /// Once the module is unplugged, deinitialising both channels returns two error codes
+        /// whose sum exceeds 255, and it throws before it reaches UcanDeinitHardware. The driver
+        /// then keeps the module marked in use, and initialising it again after it is plugged
+        /// back in fails until the application exits.
+        /// </remarks>
+        public void ShutdownIgnoringErrors(byte channel, bool shutDownHardware)
+        {
+            // The same monitor the wrapper's own Shutdown takes.
+            lock (this)
+            {
+                bool all = channel == (byte)eUcanChannel.USBCAN_CHANNEL_ALL || shutDownHardware;
+
+                if (m_fCh0IsInitialized && (all || channel == (byte)eUcanChannel.USBCAN_CHANNEL_CH0))
+                {
+                    UcanDeinitCanEx(m_UcanHandle, (byte)eUcanChannel.USBCAN_CHANNEL_CH0);
+                    m_fCh0IsInitialized = false;
+                }
+
+                if (m_fCh1IsInitialized && (all || channel == (byte)eUcanChannel.USBCAN_CHANNEL_CH1))
+                {
+                    UcanDeinitCanEx(m_UcanHandle, (byte)eUcanChannel.USBCAN_CHANNEL_CH1);
+                    m_fCh1IsInitialized = false;
+                }
+
+                if (m_fHwIsInitialized && shutDownHardware)
+                {
+                    // The wrapper waits here so a pending callback handler cannot call ReadCanMsg
+                    // on a released handle.
+                    Thread.Sleep(200);
+
+                    // The wrapper documents an occasional NullReferenceException from this call.
+                    try { UcanDeinitHardware(m_UcanHandle); }
+                    catch (NullReferenceException) { /* ignore */ }
+
+                    m_fHwIsInitialized = false;
+                    m_UcanHandle = 0;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Calls the driver's UcanDeinitHardware for a handle the wrapper has abandoned.
+        /// </summary>
+        /// <remarks>
+        /// The wrapper freed its callback GCHandle on the fatal disconnect. If the driver then
+        /// raises USBCAN_EVENT_DEINITHW for this handle, the wrapper frees it again, and that
+        /// throws on the driver's thread in the middle of the call. Re-pinning the callback
+        /// first gives that second free something to release.
+        /// </remarks>
+        /// <param name="callbackRaised">Whether the driver raised USBCAN_EVENT_DEINITHW.</param>
+        public int DeinitAbandonedHandle(byte handle, out bool callbackRaised)
+        {
+            if (!m_gchUcanCallback.IsAllocated && m_pfnUcanCallback != null)
+                m_gchUcanCallback = GCHandle.Alloc(m_pfnUcanCallback, GCHandleType.Normal);
+
+            int result = UcanDeinitHardware(handle);
+
+            callbackRaised = !m_gchUcanCallback.IsAllocated;
+            if (!callbackRaised)
+                m_gchUcanCallback.Free();
+
+            return result;
+        }
     }
 
     /// <summary>
