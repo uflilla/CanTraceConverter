@@ -27,6 +27,18 @@ namespace UcanView
 
             try
             {
+                string moved = Models.SessionConfig.MigrateLegacyDataDirectory();
+                if (moved != null)
+                    AppLog.Info("Moved the previous session folder to {0}.", moved);
+            }
+            catch (Exception ex)
+            {
+                // The old folder stays usable where it is; only the default location changed.
+                AppLog.Warn(ex, "Could not move the previous session folder.");
+            }
+
+            try
+            {
                 ThemeManager.Initialize();
             }
             catch (Exception ex)

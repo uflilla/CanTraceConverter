@@ -29,10 +29,28 @@ namespace UcanView.Models
         }
 
         public static string DefaultLogDirectory =>
-            Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments),
-                "UCAN View",
-                "Sessions");
+            Path.Combine(DataDirectory, "Sessions");
+
+        private static string DataDirectory =>
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "UCAN View");
+
+        /// <summary>Where session databases were saved before the application was renamed.</summary>
+        private static string LegacyDataDirectory =>
+            Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments), "CanTraceConverter");
+
+        /// <summary>
+        /// Renames the pre-rename data folder in Documents, sessions included, unless the new
+        /// one already exists. Runs once at startup, before any session database is open.
+        /// </summary>
+        /// <returns>The folder it was moved to, or null when there was nothing to move.</returns>
+        public static string MigrateLegacyDataDirectory()
+        {
+            if (!Directory.Exists(LegacyDataDirectory) || Directory.Exists(DataDirectory))
+                return null;
+
+            Directory.Move(LegacyDataDirectory, DataDirectory);
+            return DataDirectory;
+        }
     }
 
     /// <summary>
