@@ -1,0 +1,329 @@
+<Window x:Class="UcanView.MonitorWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="clr-namespace:UcanView.Controls"
+        xmlns:sys="clr-namespace:System;assembly=mscorlib"
+        Title="UCAN View - CAN Monitor"
+        Width="1100"
+        Height="850"
+        MinWidth="900"
+        MinHeight="700"
+        WindowStartupLocation="CenterScreen"
+        Background="{DynamicResource ThemeBackgroundBrush}"
+        FontFamily="Segoe UI"
+        FontSize="14"
+        Closing="Window_Closing">
+  <Window.Resources>
+    <Style x:Key="TransmitGridRowStyle" TargetType="DataGridRow">
+      <Setter Property="MinHeight" Value="40" />
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+    </Style>
+
+    <Style x:Key="TransmitGridCellTextStyle" TargetType="TextBlock">
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="Padding" Value="6,0" />
+    </Style>
+
+    <Style x:Key="TransmitGridEditTextStyle" TargetType="TextBox">
+      <Setter Property="VerticalContentAlignment" Value="Center" />
+      <Setter Property="Padding" Value="6,0" />
+      <Setter Property="BorderThickness" Value="0" />
+      <Setter Property="Background" Value="Transparent" />
+    </Style>
+
+    <Style x:Key="TransmitGridCheckStyle" TargetType="CheckBox">
+      <Setter Property="HorizontalAlignment" Value="Center" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+
+    <Style x:Key="TransmitGridSendButtonStyle" TargetType="Button" BasedOn="{StaticResource ModernButton}">
+      <Setter Property="Height" Value="18" />
+      <Setter Property="MinHeight" Value="18" />
+      <Setter Property="Padding" Value="10,0" />
+      <Setter Property="FontSize" Value="13" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+      <Setter Property="HorizontalAlignment" Value="Center" />
+    </Style>
+  </Window.Resources>
+  <Grid>
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="*" MinHeight="120" />
+      <RowDefinition Height="Auto" />
+      <RowDefinition Height="*" MinHeight="100" />
+      <RowDefinition Height="Auto" />
+    </Grid.RowDefinitions>
+
+    <!-- Header -->
+    <Border Grid.Row="0" Padding="20,16"
+            Background="{DynamicResource ThemeSurfaceBrush}"
+            BorderBrush="{DynamicResource ThemeBorderBrush}" BorderThickness="0,0,0,1">
+      <Grid>
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*" />
+          <ColumnDefinition Width="Auto" />
+        </Grid.ColumnDefinitions>
+        <StackPanel>
+          <TextBlock x:Name="txtSessionTitle" FontSize="18" FontWeight="SemiBold" />
+          <TextBlock x:Name="txtConnectionInfo" Margin="0,4,0,0" FontSize="13"
+                     Foreground="{DynamicResource ThemeTextSecondaryBrush}" />
+        </StackPanel>
+        <StackPanel Grid.Column="1" HorizontalAlignment="Right">
+          <TextBlock x:Name="txtConnectionStatus" HorizontalAlignment="Right" FontWeight="SemiBold"
+                     Foreground="{DynamicResource ThemeAccentBrush}" />
+          <TextBlock x:Name="txtLogPath" Margin="0,4,0,0" HorizontalAlignment="Right" FontSize="12"
+                     Foreground="{DynamicResource ThemeTextMutedBrush}" />
+        </StackPanel>
+      </Grid>
+    </Border>
+
+    <!-- Live grid -->
+    <Border Grid.Row="1" Margin="16,12,16,0"
+            Background="{DynamicResource ThemeSurfaceBrush}"
+            BorderBrush="{DynamicResource ThemeBorderBrush}" BorderThickness="1" CornerRadius="6">
+      <Grid>
+        <Grid.RowDefinitions>
+          <RowDefinition Height="Auto" />
+          <RowDefinition Height="*" />
+        </Grid.RowDefinitions>
+        <Border Padding="14,10" Background="{DynamicResource ThemeSurfaceAltBrush}"
+                BorderBrush="{DynamicResource ThemeBorderBrush}" BorderThickness="0,0,0,1">
+          <Grid>
+            <Grid.ColumnDefinitions>
+              <ColumnDefinition Width="Auto" />
+              <ColumnDefinition Width="*" />
+              <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <TextBlock FontWeight="SemiBold" VerticalAlignment="Center" Text="Live CAN Values (latest per ID)" />
+            <TextBlock x:Name="txtLiveStats" Grid.Column="1" Margin="12,0" HorizontalAlignment="Right"
+                       VerticalAlignment="Center"
+                       Foreground="{DynamicResource ThemeTextSecondaryBrush}" />
+            <Button Grid.Column="2" MinWidth="90" Padding="10,2" Click="BtnResetLiveStats_Click"
+                    Content="Reset Stats" Style="{StaticResource SecondaryButton}"
+                    ToolTip="Restart period measurement and message counters for every identifier." />
+          </Grid>
+        </Border>
+        <DataGrid x:Name="dgLive" Grid.Row="1" Style="{StaticResource ModernDataGrid}"
+                  FontSize="13" GridLinesVisibility="Horizontal" HeadersVisibility="Column"
+                  SelectionMode="Single">
+          <DataGrid.Columns>
+            <DataGridTextColumn Header="DIR" Binding="{Binding Direction}" Width="50" />
+            <DataGridTextColumn Header="CAN ID" Binding="{Binding CanIdDisplay}" Width="100" />
+            <DataGridTextColumn Header="DLC" Binding="{Binding Dlc}" Width="45" />
+            <DataGridTextColumn Header="DATA" Binding="{Binding Data}" Width="*" />
+            <DataGridTextColumn Header="TIME (ms)" Binding="{Binding TimeDisplay}" Width="100" />
+            <DataGridTextColumn Header="PERIOD (ms)" Binding="{Binding PeriodDisplay}" Width="95" />
+            <DataGridTextColumn Header="AVG (ms)" Binding="{Binding AvgPeriodDisplay}" Width="85" />
+            <DataGridTextColumn Header="MIN (ms)" Binding="{Binding MinPeriodDisplay}" Width="80" />
+            <DataGridTextColumn Header="MAX (ms)" Binding="{Binding MaxPeriodDisplay}" Width="80" />
+            <DataGridTextColumn Header="COUNT" Binding="{Binding MessageCount}" Width="70" />
+          </DataGrid.Columns>
+        </DataGrid>
+      </Grid>
+    </Border>
+
+    <GridSplitter Grid.Row="2"
+                  Height="6"
+                  Margin="16,0"
+                  HorizontalAlignment="Stretch"
+                  VerticalAlignment="Center"
+                  Background="{DynamicResource ThemeBorderBrush}"
+                  ShowsPreview="True"
+                  ResizeBehavior="PreviousAndNext"
+                  ResizeDirection="Rows"
+                  Cursor="SizeNS" />
+
+    <!-- Transmit list (PCANView-style) -->
+    <Border x:Name="panelSend" Grid.Row="3" Margin="16,0,16,0" Padding="16,14"
+            Background="{DynamicResource ThemeSurfaceBrush}"
+            BorderBrush="{DynamicResource ThemeBorderBrush}" BorderThickness="1" CornerRadius="6">
+      <Grid x:Name="gridSendControls">
+        <Grid.RowDefinitions>
+          <RowDefinition Height="Auto" />
+          <RowDefinition Height="Auto" />
+          <RowDefinition Height="*" MinHeight="100" />
+        </Grid.RowDefinitions>
+
+        <Grid Grid.Row="0" Margin="0,0,0,8">
+          <StackPanel VerticalAlignment="Center">
+            <TextBlock FontWeight="SemiBold" FontSize="15" Text="Transmit List" />
+            <TextBlock Margin="0,4,0,0" FontSize="12"
+                       Foreground="{DynamicResource ThemeTextSecondaryBrush}"
+                       Text="Click any cell to edit. Cycle off + Send = once; Cycle on + Send = start periodic TX (Send shows Stop while running)." />
+          </StackPanel>
+          <TextBlock x:Name="txtSendDisabledNotice" HorizontalAlignment="Right" VerticalAlignment="Center"
+                     FontSize="12" Foreground="{DynamicResource ThemeWarningTextBrush}"
+                     Text="Transmit disabled — listen-only session" Visibility="Collapsed" />
+        </Grid>
+
+        <WrapPanel Grid.Row="1" Margin="0,0,0,10">
+          <Button MinWidth="90" Margin="0,0,8,8" Click="BtnTxAdd_Click"
+                  Content="Add" Style="{StaticResource SecondaryButton}" />
+          <Button MinWidth="90" Margin="0,0,8,8" Click="BtnTxRemove_Click"
+                  Content="Remove" Style="{StaticResource SecondaryButton}" />
+          <Button MinWidth="90" Margin="0,0,8,8" Click="BtnTxDuplicate_Click"
+                  Content="Duplicate" Style="{StaticResource SecondaryButton}" />
+          <Button MinWidth="110" Margin="0,0,8,8" Click="BtnTxSendAllOnce_Click"
+                  Content="Send All Once" Style="{StaticResource SecondaryButton}" />
+          <Button MinWidth="120" Margin="0,0,8,8" Click="BtnTxStartAllCyclic_Click"
+                  Content="Start All Cyclic" Style="{StaticResource ModernButton}" />
+          <Button MinWidth="110" Margin="0,0,8,8" Click="BtnTxStopAllCyclic_Click"
+                  Content="Stop All Cyclic" Style="{StaticResource SecondaryButton}" />
+        </WrapPanel>
+
+        <DataGrid x:Name="dgTransmit" Grid.Row="2"
+                  AutoGenerateColumns="False"
+                  CanUserAddRows="False"
+                  CanUserDeleteRows="False"
+                  CanUserReorderColumns="False"
+                  GridLinesVisibility="Horizontal"
+                  HeadersVisibility="Column"
+                  SelectionMode="Single"
+                  SelectionUnit="FullRow"
+                  Background="{DynamicResource ThemeSurfaceBrush}"
+                  Foreground="{DynamicResource ThemeTextPrimaryBrush}"
+                  BorderBrush="{DynamicResource ThemeBorderBrush}"
+                  RowBackground="{DynamicResource ThemeSurfaceBrush}"
+                  AlternatingRowBackground="{DynamicResource ThemeDataGridRowAltBrush}"
+                  HorizontalGridLinesBrush="{DynamicResource ThemeBorderBrush}"
+                  RowStyle="{StaticResource TransmitGridRowStyle}"
+                  FontFamily="Consolas"
+                  FontSize="14"
+                  VerticalScrollBarVisibility="Auto"
+                  PreviewMouseLeftButtonDown="DgTransmit_PreviewMouseLeftButtonDown">
+          <DataGrid.CellStyle>
+            <Style TargetType="DataGridCell">
+              <Setter Property="VerticalContentAlignment" Value="Center" />
+              <Setter Property="Padding" Value="2,0" />
+              <Setter Property="BorderThickness" Value="0" />
+            </Style>
+          </DataGrid.CellStyle>
+          <DataGrid.Columns>
+            <DataGridTemplateColumn Header="Cycle" Width="58">
+              <DataGridTemplateColumn.CellTemplate>
+                <DataTemplate>
+                  <CheckBox IsChecked="{Binding CycleEnabled, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                            Style="{StaticResource TransmitGridCheckStyle}" />
+                </DataTemplate>
+              </DataGridTemplateColumn.CellTemplate>
+            </DataGridTemplateColumn>
+            <DataGridTextColumn Header="CAN ID" Binding="{Binding CanIdHex, UpdateSourceTrigger=PropertyChanged}" Width="100">
+              <DataGridTextColumn.ElementStyle>
+                <Style TargetType="TextBlock" BasedOn="{StaticResource TransmitGridCellTextStyle}" />
+              </DataGridTextColumn.ElementStyle>
+              <DataGridTextColumn.EditingElementStyle>
+                <Style TargetType="TextBox" BasedOn="{StaticResource TransmitGridEditTextStyle}" />
+              </DataGridTextColumn.EditingElementStyle>
+            </DataGridTextColumn>
+            <DataGridTemplateColumn Header="Ext" Width="48">
+              <DataGridTemplateColumn.CellTemplate>
+                <DataTemplate>
+                  <CheckBox IsChecked="{Binding Extended, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                            Style="{StaticResource TransmitGridCheckStyle}" />
+                </DataTemplate>
+              </DataGridTemplateColumn.CellTemplate>
+            </DataGridTemplateColumn>
+            <DataGridComboBoxColumn Header="DLC"
+                                    SelectedItemBinding="{Binding Dlc, UpdateSourceTrigger=PropertyChanged}"
+                                    Width="56">
+              <DataGridComboBoxColumn.ElementStyle>
+                <Style TargetType="ComboBox">
+                  <Setter Property="VerticalContentAlignment" Value="Center" />
+                  <Setter Property="VerticalAlignment" Value="Center" />
+                  <Setter Property="Height" Value="28" />
+                  <Setter Property="Margin" Value="2,0" />
+                </Style>
+              </DataGridComboBoxColumn.ElementStyle>
+              <DataGridComboBoxColumn.EditingElementStyle>
+                <Style TargetType="ComboBox">
+                  <Setter Property="VerticalContentAlignment" Value="Center" />
+                  <Setter Property="Height" Value="28" />
+                </Style>
+              </DataGridComboBoxColumn.EditingElementStyle>
+              <DataGridComboBoxColumn.ItemsSource>
+                <x:Array Type="sys:Byte">
+                  <sys:Byte>0</sys:Byte>
+                  <sys:Byte>1</sys:Byte>
+                  <sys:Byte>2</sys:Byte>
+                  <sys:Byte>3</sys:Byte>
+                  <sys:Byte>4</sys:Byte>
+                  <sys:Byte>5</sys:Byte>
+                  <sys:Byte>6</sys:Byte>
+                  <sys:Byte>7</sys:Byte>
+                  <sys:Byte>8</sys:Byte>
+                </x:Array>
+              </DataGridComboBoxColumn.ItemsSource>
+            </DataGridComboBoxColumn>
+            <DataGridTextColumn Header="Data (hex)" Binding="{Binding DataHex, UpdateSourceTrigger=PropertyChanged}" Width="*" MinWidth="180">
+              <DataGridTextColumn.ElementStyle>
+                <Style TargetType="TextBlock" BasedOn="{StaticResource TransmitGridCellTextStyle}" />
+              </DataGridTextColumn.ElementStyle>
+              <DataGridTextColumn.EditingElementStyle>
+                <Style TargetType="TextBox" BasedOn="{StaticResource TransmitGridEditTextStyle}" />
+              </DataGridTextColumn.EditingElementStyle>
+            </DataGridTextColumn>
+            <DataGridTextColumn Header="Interval (ms)" Binding="{Binding IntervalMs, UpdateSourceTrigger=PropertyChanged}" Width="130" MinWidth="130">
+              <DataGridTextColumn.ElementStyle>
+                <Style TargetType="TextBlock" BasedOn="{StaticResource TransmitGridCellTextStyle}" />
+              </DataGridTextColumn.ElementStyle>
+              <DataGridTextColumn.EditingElementStyle>
+                <Style TargetType="TextBox" BasedOn="{StaticResource TransmitGridEditTextStyle}" />
+              </DataGridTextColumn.EditingElementStyle>
+            </DataGridTextColumn>
+            <DataGridTemplateColumn Header="Send" Width="80">
+              <DataGridTemplateColumn.CellTemplate>
+                <DataTemplate>
+                  <Button Margin="2,0" Click="BtnRowSend_Click"
+                          Content="{Binding SendButtonText}"
+                          Style="{StaticResource TransmitGridSendButtonStyle}" />
+                </DataTemplate>
+              </DataGridTemplateColumn.CellTemplate>
+            </DataGridTemplateColumn>
+          </DataGrid.Columns>
+        </DataGrid>
+      </Grid>
+    </Border>
+
+    <!-- Footer -->
+    <Border Grid.Row="4" Padding="16,14"
+            Background="{DynamicResource ThemeSurfaceBrush}"
+            BorderBrush="{DynamicResource ThemeBorderBrush}" BorderThickness="0,1,0,0">
+      <StackPanel>
+        <StackPanel Orientation="Horizontal">
+          <Button MinWidth="150" Margin="0,0,12,0" Click="BtnAnalyze_Click"
+                  Content="Analyze Session" Style="{StaticResource ModernButton}" />
+          <Button MinWidth="130" Margin="0,0,12,0" Click="BtnSdoPackets_Click"
+                  Content="SDO Packets" Style="{StaticResource SecondaryButton}"
+                  ToolTip="Live view of reassembled SDO packets: who sent what to whom" />
+          <Button x:Name="btnLogging" MinWidth="130" Margin="0,0,12,0" Click="BtnLogging_Click"
+                  Content="Pause Logging" Style="{StaticResource SecondaryButton}"
+                  ToolTip="Start or pause saving messages to the session database" />
+          <Button x:Name="btnExport" MinWidth="150" Margin="0,0,12,0" Click="BtnExport_Click"
+                  Content="Export to Text..." Style="{StaticResource SecondaryButton}" />
+          <Button MinWidth="150" Margin="0,0,12,0" Click="BtnOpenLogDir_Click"
+                  Content="Open Log Folder" Style="{StaticResource SecondaryButton}" />
+          <Button x:Name="btnReconnect" MinWidth="130" Margin="0,0,12,0" Click="BtnReconnect_Click"
+                  Content="Reconnect" Style="{StaticResource SecondaryButton}" Visibility="Collapsed" />
+          <Button x:Name="btnResetController" MinWidth="170" Click="BtnResetController_Click"
+                  Content="Reset CAN Controller" Style="{StaticResource SecondaryButton}" Visibility="Collapsed"
+                  ToolTip="Clears a bus-off condition and restarts the CAN controller." />
+        </StackPanel>
+
+        <Border Margin="0,14,0,0" Padding="12,10"
+                Background="{DynamicResource ThemeSurfaceAltBrush}"
+                BorderBrush="{DynamicResource ThemeBorderBrush}" BorderThickness="1" CornerRadius="4">
+          <StackPanel>
+            <TextBlock x:Name="txtStatus" MinHeight="20" Text="Ready"
+                       TextWrapping="Wrap" Foreground="{DynamicResource ThemeTextSecondaryBrush}" FontSize="13" />
+            <TextBlock x:Name="txtBusError" Margin="0,6,0,0" MinHeight="20"
+                       TextWrapping="Wrap" FontSize="13" FontWeight="SemiBold"
+                       Foreground="{DynamicResource ThemeErrorTextBrush}"
+                       Visibility="Collapsed" />
+          </StackPanel>
+        </Border>
+
+        <controls:DeveloperFooter Margin="0,12,0,0" />
+      </StackPanel>
+    </Border>
+  </Grid>
+</Window>
